@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.17.22';
+const PSE_VERSION = '2.17.23';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -6998,8 +6998,128 @@ function pseForwardSourceMessage(array $settings, string $folder, string $uid): 
   return pseMailCacheRenderMessage($settings, $folder, $uid, $source, false);
 }
 
-function pseForwardMailData(array $settings, string $folder, string $uid, array $data): array
-{
+function pseForwardAttachmentManifestFromMessage(
+  array $settings,
+  string $folder,
+  string $uid,
+  array $message
+): array {
+  $manifest = [];
+  foreach ((array)($message['attachments'] ?? []) as $attachment) {
+    if (!is_array($attachment)) {
+      continue;
+    }
+    $part = trim((string)($attachment['part'] ?? ''));
+    if ($part === '') {
+      continue;
+    }
+    $manifest[] = [
+      'part' => $part,
+      'name' => (string)($attachment['filename'] ?? ('attachment-' . str_replace('.', '-', $part))),
+      'type' => (string)($attachment['mime'] ?? 'application/octet-stream'),
+      'size' => max(0, (int)($attachment['size'] ?? 0)),
+      'url' => pseAttachmentUrl($settings, $folder, $uid, $part)
+    ];
+  }
+  return $manifest;
+}
+
+function pseForwardAttachmentPayloads(
+  array $settings,
+  string $folder,
+  string $uid,
+  array $attachments
+): array {
+  if (empty($attachments)) {
+    return [];
+  }
+
+  $prepared = [];
+  $totalBytes = 0;
+  $gmailPayload = null;
+  $imap = null;
+  $imapStructure = null;
+  $imapUid = (int)$uid;
+
+  try {
+    if (pseIsGmailAccount($settings)) {
+      $message = pseGoogleApi(
+        $settings,
+        'GET',
+        'messages/' . rawurlencode($uid),
+        ['format' => 'full']
+      );
+      $gmailPayload = (array)($message['payload'] ?? []);
+    } else {
+      if ($imapUid <= 0) {
+        throw new RuntimeException('Invalid IMAP message identifier.');
+      }
+      $imap = pseOpenImap($settings, $folder, true);
+      $imapStructure = @imap_fetchstructure($imap, $imapUid, FT_UID);
+      if (!$imapStructure) {
+        throw new RuntimeException('Unable to read message attachment structure.');
+      }
+    }
+
+    foreach ($attachments as $attachment) {
+      if (!is_array($attachment)) {
+        continue;
+      }
+      $part = trim((string)($attachment['part'] ?? ''));
+      if ($part === '') {
+        continue;
+      }
+
+      $cached = pseCachedAttachmentRecord($settings, $folder, $uid, $part);
+      if (!empty($cached)) {
+        $meta = (array)($cached['meta'] ?? []);
+        $binary = @file_get_contents((string)$cached['dataFile']);
+        if (!is_string($binary)) {
+          throw new RuntimeException('Unable to read cached forwarded attachment.');
+        }
+        $name = (string)($meta['filename'] ?? ($attachment['filename'] ?? 'attachment.bin'));
+        $mime = (string)($meta['mime'] ?? ($attachment['mime'] ?? 'application/octet-stream'));
+      } elseif (pseIsGmailAccount($settings)) {
+        $data = pseGmailAttachmentDataFromPayload($settings, $uid, (array)$gmailPayload, $part);
+        $name = (string)$data['filename'];
+        $mime = (string)$data['mime'];
+        $binary = (string)$data['content'];
+        pseCacheAttachment($settings, $folder, $uid, $part, $name, $mime, $binary);
+      } else {
+        $data = pseImapAttachmentDataFromConnection($imap, $imapUid, $imapStructure, $part);
+        $name = (string)$data['filename'];
+        $mime = (string)$data['mime'];
+        $binary = (string)$data['content'];
+        pseCacheAttachment($settings, $folder, $uid, $part, $name, $mime, $binary);
+      }
+
+      $totalBytes += strlen($binary);
+      if ($totalBytes > PSE_MAX_ATTACHMENT_BYTES) {
+        throw new RuntimeException('Forwarded attachments exceed the 15 MB application limit.');
+      }
+
+      $prepared[] = [
+        'name' => basename($name !== '' ? $name : 'attachment.bin'),
+        'type' => $mime !== '' ? $mime : 'application/octet-stream',
+        'data' => base64_encode($binary)
+      ];
+    }
+  } finally {
+    if ($imap !== null) {
+      @imap_close($imap);
+    }
+  }
+
+  return $prepared;
+}
+
+function pseForwardMailData(
+  array $settings,
+  string $folder,
+  string $uid,
+  array $data,
+  bool $includeAttachments = true
+): array {
   $message = pseForwardSourceMessage($settings, $folder, $uid);
   $subject = trim((string)($message['subject'] ?? ''));
   if ($subject === '') {
@@ -7040,9 +7160,9 @@ function pseForwardMailData(array $settings, string $folder, string $uid, array 
     // pseBuildMail applies the configured signature during send.
     'signatureHandled' => false,
     'signaturePresent' => false,
-    // Match the current manual Forward behavior: original attachment bodies are
-    // not copied into the new compose message automatically.
-    'attachments' => []
+    'attachments' => $includeAttachments
+      ? pseForwardAttachmentPayloads($settings, $folder, $uid, (array)($message['attachments'] ?? []))
+      : []
   ];
 }
 
@@ -9118,6 +9238,21 @@ function pseHandleAjax(string $action, array $settings): void
         'messageId' => $sent['messageId'],
         'sentCopyWarning' => $sent['sentCopyWarning'],
         'signatureApplied' => $sent['signatureApplied']
+      ]);
+      break;
+
+    case 'forward_prepare':
+      $folder = (string)($data['folder'] ?? 'INBOX');
+      $uid = trim((string)($data['uid'] ?? ''));
+      if ($uid === '' || !pseValidMessageUid($settings, $uid)) {
+        throw new RuntimeException('Invalid email identifier for forwarding.');
+      }
+      $message = pseForwardSourceMessage($settings, $folder, $uid);
+      $mailData = pseForwardMailData($settings, $folder, $uid, $data, false);
+      pseJson([
+        'ok' => true,
+        'mail' => $mailData,
+        'attachments' => pseForwardAttachmentManifestFromMessage($settings, $folder, $uid, $message)
       ]);
       break;
 
@@ -12208,11 +12343,30 @@ if (!headers_sent()) {
                 <input class="pse-native-color-input" id="composeTextColor" type="color" value="#202632" aria-label="Custom text color">
               </div>
             </div>
-            <label class="btn btn-sm btn-light d-inline-flex align-items-center gap-1 mb-0" for="composeBackgroundColor" title="Text background color">
-              <i class="fa-solid fa-fill-drip" aria-hidden="true"></i>
-              <span class="d-none d-lg-inline">Background</span>
-              <input class="form-control form-control-color form-control-sm" id="composeBackgroundColor" type="color" value="#fff2a8" aria-label="Text background color" style="width:28px;height:25px;padding:2px">
-            </label>
+            <div class="dropdown d-inline-flex align-items-center">
+              <button
+                class="btn btn-sm btn-light d-inline-flex align-items-center gap-1"
+                id="composeBackgroundColorButton"
+                type="button"
+                data-bs-toggle="dropdown"
+                data-bs-auto-close="true"
+                aria-expanded="false"
+                title="Text background color"
+              >
+                <i class="fa-solid fa-fill-drip" aria-hidden="true"></i>
+                <span class="d-none d-lg-inline">Background</span>
+                <span class="pse-current-color" id="composeBackgroundColorSwatch" aria-hidden="true"></span>
+              </button>
+              <div class="dropdown-menu p-3 pse-color-picker-menu" aria-labelledby="composeBackgroundColorButton">
+                <div class="small fw-semibold mb-2">Text background color</div>
+                <div class="pse-color-grid" id="composeBackgroundColorPalette" role="group" aria-label="Common background colors"></div>
+                <hr class="my-3">
+                <button class="btn btn-sm btn-outline-secondary w-100" id="composeCustomBackgroundColorButton" type="button">
+                  <i class="fa-solid fa-sliders me-1" aria-hidden="true"></i>Pick from slider…
+                </button>
+                <input class="pse-native-color-input" id="composeBackgroundColor" type="color" value="#fff2a8" aria-label="Custom text background color">
+              </div>
+            </div>
             <select class="form-select form-select-sm" id="composeFontSize" title="Font size" aria-label="Font size" style="width:auto">
               <option value="">Size</option>
               <option value="10">10 px</option>
@@ -12899,6 +13053,8 @@ if (!headers_sent()) {
         composeSignatureManaged: false,
         skipDraftOnClose: false,
         composeCloseConfirming: false,
+        composeSession: 0,
+        composePlainAfterClear: false,
         composeRange: null,
         unknownContactResolver: null,
         readContactPromptOpen: false,
@@ -17717,7 +17873,7 @@ if (!headers_sent()) {
       function restoreRememberedComposeColorPickers() {
         const colors = rememberedComposeColors();
         setComposeTextColorPickerValue(colors.text);
-        $('#composeBackgroundColor').value = colors.background;
+        setComposeBackgroundColorPickerValue(colors.background);
       }
 
       function setComposeTextColorPickerValue(value) {
@@ -17737,6 +17893,25 @@ if (!headers_sent()) {
         setComposeTextColorPickerValue(color);
         rememberComposeColor('text_color', color);
         applyComposeColor('foreColor', 'color', color);
+      }
+
+      function setComposeBackgroundColorPickerValue(value) {
+        const color = validComposeColor(value, '#fff2a8').toLowerCase();
+        $('#composeBackgroundColor').value = color;
+        $('#composeBackgroundColorSwatch').style.backgroundColor = color;
+        $('#composeBackgroundColorSwatch').title = color.toUpperCase();
+        $$('.pse-color-choice', $('#composeBackgroundColorPalette')).forEach(button => {
+          const active = String(button.dataset.color || '').toLowerCase() === color;
+          button.classList.toggle('active', active);
+          button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+      }
+
+      function chooseComposeBackgroundColor(value) {
+        const color = validComposeColor(value, '#fff2a8').toLowerCase();
+        setComposeBackgroundColorPickerValue(color);
+        rememberComposeColor('background_color', color);
+        applyComposeColor('hiliteColor', 'backgroundColor', color);
       }
 
       function suppressBrowserAutofill(root = document) {
@@ -18137,6 +18312,7 @@ if (!headers_sent()) {
       }
 
       function resetCompose() {
+        state.composeSession++;
         hideRecipientSuggestions(false);
         state.recipients = {to: [], cc: [], bcc: []};
         state.recipientActiveField = 'to';
@@ -18150,6 +18326,7 @@ if (!headers_sent()) {
         state.composeSignatureManaged = false;
         state.skipDraftOnClose = false;
         state.composeCloseConfirming = false;
+        state.composePlainAfterClear = false;
         setComposeMaximized(false);
         $('#composePseId').value = '';
         $('#composeSubject').value = '';
@@ -18161,6 +18338,7 @@ if (!headers_sent()) {
         $$('.pse-compose-editable').forEach(element => element.classList.remove('d-none'));
         $('#composeTitleText').textContent = 'Compose email';
         $('#sendEmail').innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i>Send';
+        $('#sendEmail').disabled = false;
         $('#deleteComposeForever').classList.remove('d-none');
         ['to', 'cc', 'bcc'].forEach(field => renderRecipientChips(field));
         setActiveRecipientField('to');
@@ -18338,6 +18516,7 @@ if (!headers_sent()) {
         state.bulkForwardFolder = String(state.folder);
         state.composeDirty = false;
         $$('.pse-compose-editable').forEach(element => element.classList.add('d-none'));
+        $('#imageUploadProgress').classList.remove('d-none');
         $('#composeTitleText').textContent = `Forward ${uids.length} selected email${uids.length === 1 ? '' : 's'} separately`;
         $('#sendEmail').innerHTML = '<i class="fa-solid fa-share me-1"></i>Forward';
         updateComposeDraftUi();
@@ -18384,7 +18563,7 @@ if (!headers_sent()) {
         return String(message?.date || '');
       }
 
-      function replyToMessage(mode = 'reply') {
+      async function replyToMessage(mode = 'reply') {
         const message = state.currentMessage;
         if (!message) return;
         resetCompose();
@@ -18423,6 +18602,28 @@ if (!headers_sent()) {
         setDefaultComposeRange();
         state.composeDirty = true;
         composeModal.show();
+
+        if (mode === 'forward' && Array.isArray(message.attachments) && message.attachments.length) {
+          const composeSession = state.composeSession;
+          const sendButton = $('#sendEmail');
+          if (sendButton) sendButton.disabled = true;
+          $('#attachmentList').textContent = `Downloading ${message.attachments.length} original attachment${message.attachments.length === 1 ? '' : 's'}…`;
+          try {
+            const downloaded = await downloadForwardAttachments(message.attachments, 'Forward — ');
+            if (state.composeSession !== composeSession) return;
+            state.composeFiles = downloaded;
+            renderAttachmentList();
+            if (sendButton) sendButton.disabled = false;
+            updateImageProgress(100, `${state.composeFiles.length} attachment${state.composeFiles.length === 1 ? '' : 's'} ready to forward`);
+            setTimeout(() => updateImageProgress(0, ''), 900);
+          } catch (error) {
+            if (state.composeSession !== composeSession) return;
+            state.composeFiles = [];
+            $('#attachmentList').textContent = 'Original attachment download failed. Close and retry Forward.';
+            updateImageProgress(0, '');
+            handleError(error);
+          }
+        }
       }
 
       function renderAttachmentList() {
@@ -18441,6 +18642,96 @@ if (!headers_sent()) {
             reader.readAsDataURL(file);
           });
         }));
+      }
+
+      async function downloadForwardAttachments(
+        attachments,
+        progressPrefix = '',
+        progressBase = 0,
+        progressSpan = 100
+      ) {
+        const items = (attachments || []).filter(item => item && item.url);
+        if (!items.length) return [];
+
+        const announcedBytes = items.reduce((sum, item) => sum + Math.max(0, Number(item.size || 0)), 0);
+        if (announcedBytes > <?= PSE_MAX_ATTACHMENT_BYTES ?>) {
+          throw new Error('Forwarded attachments exceed the 15 MB application limit.');
+        }
+
+        const files = [];
+        let completedBytes = 0;
+        let actualTotalBytes = 0;
+
+        for (let index = 0; index < items.length; index++) {
+          const attachment = items[index];
+          const name = String(attachment.name || attachment.filename || `attachment-${index + 1}`);
+          const type = String(attachment.type || attachment.mime || 'application/octet-stream');
+          const response = await fetch(String(attachment.url), {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store'
+          });
+          if (!response.ok) {
+            throw new Error(`Unable to download ${name} for forwarding (HTTP ${response.status}).`);
+          }
+
+          const headerBytes = Math.max(0, Number(response.headers.get('Content-Length') || 0));
+          const expectedBytes = headerBytes || Math.max(0, Number(attachment.size || 0));
+          const chunks = [];
+          let loaded = 0;
+          const reader = response.body?.getReader ? response.body.getReader() : null;
+
+          const report = () => {
+            let fraction;
+            if (announcedBytes > 0) {
+              fraction = (completedBytes + Math.min(loaded, expectedBytes || loaded)) / announcedBytes;
+            } else {
+              const withinFile = expectedBytes > 0 ? Math.min(1, loaded / expectedBytes) : 0;
+              fraction = (index + withinFile) / items.length;
+            }
+            const percent = progressBase + progressSpan * Math.max(0, Math.min(1, fraction));
+            const bytesLabel = expectedBytes > 0
+              ? `${formatBytes(loaded)} / ${formatBytes(expectedBytes)}`
+              : formatBytes(loaded);
+            updateImageProgress(
+              percent,
+              `${progressPrefix}Downloading ${index + 1}/${items.length}: ${name} — ${bytesLabel}`
+            );
+          };
+
+          if (reader) {
+            while (true) {
+              const {done, value} = await reader.read();
+              if (done) break;
+              if (value?.length) {
+                chunks.push(value);
+                loaded += value.length;
+                actualTotalBytes += value.length;
+                if (actualTotalBytes > <?= PSE_MAX_ATTACHMENT_BYTES ?>) {
+                  try { await reader.cancel(); } catch (ignore) {}
+                  throw new Error('Forwarded attachments exceed the 15 MB application limit.');
+                }
+                report();
+              }
+            }
+          } else {
+            const blob = await response.blob();
+            chunks.push(blob);
+            loaded = blob.size;
+            actualTotalBytes += blob.size;
+            if (actualTotalBytes > <?= PSE_MAX_ATTACHMENT_BYTES ?>) {
+              throw new Error('Forwarded attachments exceed the 15 MB application limit.');
+            }
+            report();
+          }
+
+          const blob = new Blob(chunks, {type});
+          files.push(new File([blob], name, {type, lastModified: Date.now()}));
+          completedBytes += expectedBytes || blob.size;
+        }
+
+        updateImageProgress(progressBase + progressSpan, `${progressPrefix}Attachment download complete`);
+        return files;
       }
 
       function composeAttachmentBlob(file) {
@@ -18484,15 +18775,21 @@ if (!headers_sent()) {
         throw lastError || new Error('Attachment chunk upload failed.');
       }
 
-      async function uploadComposeAttachments() {
+      async function uploadComposeAttachments(
+        files = state.composeFiles,
+        progressPrefix = '',
+        progressBase = 0,
+        progressSpan = 100,
+        autoHide = true
+      ) {
         const references = [];
-        for (let fileIndex = 0; fileIndex < state.composeFiles.length; fileIndex++) {
-          const file = state.composeFiles[fileIndex];
+        for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
+          const file = files[fileIndex];
           const blob = composeAttachmentBlob(file);
           const name = String(file?.name || 'attachment.bin');
           const type = String(file?.type || blob.type || 'application/octet-stream');
           const totalChunks = Math.max(1, Math.ceil(blob.size / <?= PSE_ATTACHMENT_CHUNK_BYTES ?>));
-          updateImageProgress(1, `Verifying ${name}…`);
+          updateImageProgress(progressBase + progressSpan * (fileIndex / Math.max(1, files.length)), `${progressPrefix}Verifying ${name}…`);
           const sha256 = await sha256Blob(blob);
           const previous = file?._pseUpload;
           const canResume = previous &&
@@ -18523,13 +18820,15 @@ if (!headers_sent()) {
               const start = chunkIndex * <?= PSE_ATTACHMENT_CHUNK_BYTES ?>;
               const end = Math.min(blob.size, start + <?= PSE_ATTACHMENT_CHUNK_BYTES ?>);
               const chunk = blob.slice(start, end, type);
-              const overall = Math.round(((chunkIndex + 0.25) / totalChunks) * 100);
-              updateImageProgress(overall, `Uploading ${name} — chunk ${chunkIndex + 1}/${totalChunks}…`);
+              const fileFraction = (chunkIndex + 0.25) / totalChunks;
+              const overallFraction = (fileIndex + fileFraction) / Math.max(1, files.length);
+              const overall = progressBase + progressSpan * overallFraction;
+              updateImageProgress(overall, `${progressPrefix}Uploading ${name} — chunk ${chunkIndex + 1}/${totalChunks}…`);
               await uploadChunkWithRetry(file._pseUpload.uploadId, chunkIndex, chunk);
             }
           }
 
-          updateImageProgress(99, `Checking ${name}…`);
+          updateImageProgress(progressBase + progressSpan * ((fileIndex + .98) / Math.max(1, files.length)), `${progressPrefix}Checking ${name}…`);
           const finalized = await api('upload_attachment_finalize', {
             uploadId: file._pseUpload.uploadId
           }, {spinner: false});
@@ -18542,9 +18841,9 @@ if (!headers_sent()) {
             size: Number(completed.size || blob.size),
             sha256: String(completed.sha256 || sha256)
           });
-          updateImageProgress(100, `${name} uploaded`);
+          updateImageProgress(progressBase + progressSpan * ((fileIndex + 1) / Math.max(1, files.length)), `${progressPrefix}${name} uploaded`);
         }
-        setTimeout(() => updateImageProgress(0, ''), 650);
+        if (autoHide) setTimeout(() => updateImageProgress(0, ''), 650);
         return references;
       }
 
@@ -18592,7 +18891,52 @@ if (!headers_sent()) {
         selection.addRange(state.composeRange);
       }
 
+      function clearComposeFormatting() {
+        restoreComposeSelection();
+        document.execCommand('removeFormat', false, null);
+        const selection = window.getSelection();
+        if (selection?.rangeCount) {
+          const range = selection.getRangeAt(0);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          state.composeRange = range.cloneRange();
+        }
+        state.composePlainAfterClear = true;
+        markComposeDirty();
+      }
+
+      function composeBlockAtSelection() {
+        const body = $('#composeBody');
+        const selection = window.getSelection();
+        if (!selection?.rangeCount) return null;
+        let node = selection.getRangeAt(0).startContainer;
+        if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+        while (node && node !== body) {
+          if (/^(DIV|P|LI|PRE|BLOCKQUOTE)$/.test(node.tagName || '')) return node;
+          node = node.parentElement;
+        }
+        return null;
+      }
+
+      function makeCurrentComposeLinePlain() {
+        const block = composeBlockAtSelection();
+        if (!block) return;
+        block.style.removeProperty('color');
+        block.style.removeProperty('background-color');
+        block.style.removeProperty('font-size');
+        block.style.removeProperty('font-family');
+        block.style.removeProperty('font-weight');
+        block.style.removeProperty('font-style');
+        block.style.removeProperty('text-decoration');
+        block.querySelectorAll('b,strong,i,em,u,s,strike,font,span').forEach(element => {
+          while (element.firstChild) element.parentNode.insertBefore(element.firstChild, element);
+          element.remove();
+        });
+      }
+
       function applyComposeColor(command, styleProperty, value) {
+        state.composePlainAfterClear = false;
         restoreComposeSelection();
         const selection = window.getSelection();
         if (!selection?.rangeCount) return;
@@ -18622,6 +18966,7 @@ if (!headers_sent()) {
 
       function applyComposeFontSize(size) {
         if (!size) return;
+        state.composePlainAfterClear = false;
         restoreComposeSelection();
         const selection = window.getSelection();
         if (selection?.rangeCount && selection.getRangeAt(0).collapsed) {
@@ -18834,27 +19179,79 @@ if (!headers_sent()) {
             throw new Error('No selected emails are available to forward.');
           }
           if (!await askAboutUnknownContacts()) return;
-          const count = state.bulkForwardUids.length;
-          const result = await api('bulk_forward', {
-            folder: state.bulkForwardFolder || state.folder,
-            uids: state.bulkForwardUids,
-            to: state.recipients.to,
-            cc: state.recipients.cc,
-            bcc: state.recipients.bcc
-          }, {spinnerText: `Forwarding ${count} email${count === 1 ? '' : 's'} separately…`});
-          const sentCount = Math.max(0, Number(result.sentCount || 0));
-          const failedCount = Math.max(0, Number(result.failedCount || 0));
-          const warnings = Array.isArray(result.warnings) ? result.warnings : [];
-          const failures = Array.isArray(result.failures) ? result.failures : [];
 
+          const folder = state.bulkForwardFolder || state.folder;
+          const count = state.bulkForwardUids.length;
+          let sentCount = 0;
+          const failures = [];
+          const warnings = [];
+
+          for (let index = 0; index < count; index++) {
+            const uid = state.bulkForwardUids[index];
+            const base = (index / count) * 100;
+            const span = 100 / count;
+            const prefix = `Email ${index + 1}/${count} — `;
+            updateImageProgress(base, `${prefix}preparing…`);
+
+            try {
+              const prepared = await api('forward_prepare', {
+                folder,
+                uid,
+                to: state.recipients.to,
+                cc: state.recipients.cc,
+                bcc: state.recipients.bcc
+              }, {spinner: false});
+              const mail = prepared.mail || {};
+              const attachments = Array.isArray(prepared.attachments) ? prepared.attachments : [];
+              let attachmentRefs = [];
+
+              if (attachments.length) {
+                const downloaded = await downloadForwardAttachments(
+                  attachments,
+                  prefix,
+                  base,
+                  span * .45
+                );
+                attachmentRefs = await uploadComposeAttachments(
+                  downloaded,
+                  prefix,
+                  base + span * .45,
+                  span * .45,
+                  false
+                );
+              } else {
+                updateImageProgress(base + span * .9, `${prefix}no attachments; sending…`);
+              }
+
+              mail.attachments = attachmentRefs;
+              updateImageProgress(base + span * .92, `${prefix}sending…`);
+              const result = await api('send_message', mail, {spinner: false});
+              sentCount++;
+              const warning = String(result.sentCopyWarning || '').trim();
+              if (warning) warnings.push({uid, warning});
+              updateImageProgress(base + span, `${prefix}sent`);
+            } catch (error) {
+              failures.push({uid, error: error?.message || String(error)});
+              updateImageProgress(base + span, `${prefix}failed`);
+            }
+          }
+
+          const failedCount = failures.length;
           if (sentCount > 0) {
             noteSentMessage(sentCount);
             state.skipDraftOnClose = true;
             state.composeDirty = false;
+          }
+
+          if (failedCount === 0) {
+            updateImageProgress(100, `${sentCount} email${sentCount === 1 ? '' : 's'} forwarded`);
+            setTimeout(() => updateImageProgress(0, ''), 900);
             composeModal.hide();
           }
 
           if (failedCount > 0) {
+            state.bulkForwardUids = failures.map(item => String(item.uid || '')).filter(Boolean);
+            $('#composeTitleText').textContent = `Retry ${failedCount} failed forwarded email${failedCount === 1 ? '' : 's'}`;
             const firstFailure = String(failures[0]?.error || 'Unknown error');
             toast(
               `${sentCount} forwarded, ${failedCount} failed. First error: ${firstFailure}`,
@@ -18870,6 +19267,7 @@ if (!headers_sent()) {
             toast(`${sentCount} email${sentCount === 1 ? '' : 's'} forwarded separately.`);
           }
         } catch (error) {
+          updateImageProgress(0, '');
           handleError(error);
         } finally {
           if (sendButton) sendButton.disabled = wasDisabled;
@@ -20257,7 +20655,7 @@ if (!headers_sent()) {
         {value: '#6f42c1', name: 'Purple'},
         {value: '#d63384', name: 'Pink'}
       ];
-      $('#composeTextColorPalette').innerHTML = composeTextColors.map(color => `
+      const composeColorPaletteHtml = composeTextColors.map(color => `
         <button
           class="pse-color-choice"
           type="button"
@@ -20269,26 +20667,45 @@ if (!headers_sent()) {
           aria-pressed="false"
         ></button>
       `).join('');
-      setComposeTextColorPickerValue(rememberedComposeColors().text);
+      $('#composeTextColorPalette').innerHTML = composeColorPaletteHtml;
+      $('#composeBackgroundColorPalette').innerHTML = composeColorPaletteHtml;
+      const rememberedColors = rememberedComposeColors();
+      setComposeTextColorPickerValue(rememberedColors.text);
+      setComposeBackgroundColorPickerValue(rememberedColors.background);
       $('#composeTextColorButton').addEventListener('pointerdown', saveComposeSelection);
+      $('#composeBackgroundColorButton').addEventListener('pointerdown', saveComposeSelection);
       $$('.pse-color-choice', $('#composeTextColorPalette')).forEach(button => {
         button.addEventListener('pointerdown', event => event.preventDefault());
         button.addEventListener('click', () => chooseComposeTextColor(button.dataset.color));
+      });
+      $$('.pse-color-choice', $('#composeBackgroundColorPalette')).forEach(button => {
+        button.addEventListener('pointerdown', event => event.preventDefault());
+        button.addEventListener('click', () => chooseComposeBackgroundColor(button.dataset.color));
       });
       $('#composeCustomTextColorButton').addEventListener('pointerdown', event => {
         event.preventDefault();
         saveComposeSelection();
       });
       $('#composeCustomTextColorButton').addEventListener('click', () => $('#composeTextColor').click());
+      $('#composeCustomBackgroundColorButton').addEventListener('pointerdown', event => {
+        event.preventDefault();
+        saveComposeSelection();
+      });
+      $('#composeCustomBackgroundColorButton').addEventListener('click', () => $('#composeBackgroundColor').click());
 
       $$('.compose-format').forEach(button => button.addEventListener('click', async event => {
         event.preventDefault();
         const command = button.dataset.command;
+        if (command === 'removeFormat') {
+          clearComposeFormatting();
+          return;
+        }
         let value = null;
         if (command === 'createLink') {
           value = await swalUrlPrompt();
           if (!value) return;
         }
+        state.composePlainAfterClear = false;
         restoreComposeSelection();
         document.execCommand(command, false, value);
         markComposeDirty();
@@ -20305,8 +20722,7 @@ if (!headers_sent()) {
         chooseComposeTextColor(event.target.value);
       });
       $('#composeBackgroundColor').addEventListener('change', event => {
-        rememberComposeColor('background_color', event.target.value);
-        applyComposeColor('hiliteColor', 'backgroundColor', event.target.value);
+        chooseComposeBackgroundColor(event.target.value);
       });
       $('#composeFontSize').addEventListener('change', event => {
         applyComposeFontSize(event.target.value);
@@ -20319,6 +20735,16 @@ if (!headers_sent()) {
       });
       $('#composeBody').addEventListener('mouseup', saveComposeSelection);
       $('#composeBody').addEventListener('keyup', saveComposeSelection);
+      $('#composeBody').addEventListener('keydown', event => {
+        if (event.key !== 'Enter' || event.shiftKey || !state.composePlainAfterClear) return;
+        event.preventDefault();
+        restoreComposeSelection();
+        document.execCommand('insertParagraph', false, null);
+        makeCurrentComposeLinePlain();
+        state.composePlainAfterClear = false;
+        saveComposeSelection();
+        markComposeDirty();
+      });
       $('#insertImageButton').addEventListener('mousedown', event => {
         event.preventDefault();
         saveComposeSelection();
