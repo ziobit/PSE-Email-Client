@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.17.18
+ * PSE Email (PSE), release v2.17.19
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.17.18';
+const PSE_VERSION = '2.17.19';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -10020,7 +10020,7 @@ if (!headers_sent()) {
       min-height: 34px;
       font-weight: 700;
       letter-spacing: .2px;
-      overflow: hidden;
+      overflow: visible;
       white-space: nowrap;
     }
     .pse-brand-avatar {
@@ -10049,20 +10049,139 @@ if (!headers_sent()) {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .pse-account-badge {
-      display: inline-block;
-      max-width: 130px;
+    .pse-account-switcher {
+      position: relative;
+      display: inline-flex;
+      min-width: 0;
       margin-left: 7px;
+      vertical-align: middle;
+    }
+    .pse-account-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 150px;
+      min-width: 0;
       padding: 2px 7px;
       overflow: hidden;
       border: 1px solid rgba(255,255,255,.38);
       border-radius: 10px;
+      color: inherit;
+      font: inherit;
       font-size: 11px;
       font-weight: 500;
       line-height: 1.25;
-      text-overflow: ellipsis;
+      text-align: left;
       vertical-align: middle;
       background: rgba(255,255,255,.12);
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    .pse-account-badge-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pse-account-badge.switchable {
+      cursor: pointer;
+      transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
+    }
+    .pse-account-badge.switchable:hover,
+    .pse-account-badge.switchable[aria-expanded="true"] {
+      border-color: rgba(255,255,255,.68);
+      background: rgba(255,255,255,.2);
+      box-shadow: 0 2px 8px rgba(0,0,0,.12);
+    }
+    .pse-account-badge.switchable:focus-visible {
+      outline: 2px solid rgba(255,255,255,.82);
+      outline-offset: 2px;
+    }
+    .pse-account-badge-chevron {
+      flex: 0 0 auto;
+      font-size: 8px;
+      opacity: .82;
+      transition: transform .14s ease;
+    }
+    .pse-account-badge[aria-expanded="true"] .pse-account-badge-chevron { transform: rotate(180deg); }
+    .pse-account-menu {
+      position: absolute;
+      z-index: 1085;
+      top: calc(100% + 7px);
+      left: 0;
+      width: max-content;
+      min-width: 210px;
+      max-width: min(330px, calc(100vw - 28px));
+      padding: 5px;
+      border: 1px solid var(--pse-border);
+      border-radius: 12px;
+      background: var(--pse-panel);
+      box-shadow: 0 12px 30px rgba(0,0,0,.2);
+      color: var(--pse-text);
+    }
+    .pse-account-menu[hidden] { display: none !important; }
+    .pse-account-menu-item {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 26px minmax(0, 1fr) 18px;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 8px;
+      border: 0;
+      border-radius: 8px;
+      color: inherit;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+    .pse-account-menu-item:hover,
+    .pse-account-menu-item:focus-visible { background: color-mix(in srgb, var(--pse-primary) 9%, var(--pse-panel)); outline: none; }
+    .pse-account-menu-item.active { background: color-mix(in srgb, var(--pse-primary) 13%, var(--pse-panel)); }
+    .pse-account-menu-icon {
+      width: 26px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 7px;
+      color: var(--pse-primary);
+      background: color-mix(in srgb, var(--pse-primary) 9%, transparent);
+    }
+    .pse-account-menu-copy { min-width: 0; }
+    .pse-account-menu-name {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .pse-account-menu-detail {
+      display: block;
+      margin-top: 1px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--pse-muted);
+      font-size: 10px;
+    }
+    .pse-account-menu-check { color: var(--pse-primary); font-size: 11px; text-align: center; }
+    .pse-footer-version {
+      border: 0;
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      font: inherit;
+      opacity: .76;
+      cursor: pointer;
+      transition: opacity .14s ease, text-decoration-color .14s ease;
+    }
+    .pse-footer-version:hover,
+    .pse-footer-version:focus-visible {
+      opacity: 1;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      outline: none;
     }
     .pse-search { max-width: 720px; }
     #toggleViewMode { min-width: 32px; }
@@ -11489,7 +11608,7 @@ if (!headers_sent()) {
     @media (max-width: 900px) {
       body { overflow: auto; }
       .pse-header .pse-brand-title,
-      .pse-header .pse-account-badge { display: none !important; }
+      .pse-header .pse-account-switcher { display: none !important; }
       .pse-footer-label,
       .pse-footer-version { display: none !important; }
       #statFolder {
@@ -11682,7 +11801,13 @@ if (!headers_sent()) {
       <div class="pse-brand" title="<?= htmlspecialchars((string)$pseSettings['app_title'], ENT_QUOTES, 'UTF-8') ?>">
         <span class="pse-brand-avatar" aria-hidden="true"><img src="<?= htmlspecialchars($pseIconHref, ENT_QUOTES, 'UTF-8') ?>" alt=""></span>
         <span class="pse-brand-title"><?= htmlspecialchars((string)$pseSettings['app_title'], ENT_QUOTES, 'UTF-8') ?></span>
-        <span class="pse-account-badge" id="activeAccountName" title="<?= htmlspecialchars((string)$pseSettings['account_name'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)$pseSettings['account_name'], ENT_QUOTES, 'UTF-8') ?></span>
+        <span class="pse-account-switcher" id="accountQuickSwitcher">
+          <button class="pse-account-badge" id="activeAccountButton" type="button" aria-haspopup="menu" aria-expanded="false" title="<?= htmlspecialchars((string)$pseSettings['account_name'], ENT_QUOTES, 'UTF-8') ?>">
+            <span class="pse-account-badge-name" id="activeAccountName"><?= htmlspecialchars((string)$pseSettings['account_name'], ENT_QUOTES, 'UTF-8') ?></span>
+            <i class="fa-solid fa-chevron-down pse-account-badge-chevron d-none" id="accountQuickChevron" aria-hidden="true"></i>
+          </button>
+          <div class="pse-account-menu" id="accountQuickMenu" role="menu" hidden></div>
+        </span>
       </div>
       <div class="pse-search flex-grow-1 mx-auto">
         <div class="input-group">
@@ -11905,7 +12030,7 @@ if (!headers_sent()) {
       <button class="pse-footer-action" id="footerUnreadAction" title="Show only unread messages"><i class="fa-solid fa-envelope-circle-check me-1"></i><span id="statUnread">0</span><span class="pse-footer-label"> unread</span></button>
       <button class="pse-footer-action" id="footerContactsAction" title="Open contacts"><i class="fa-solid fa-address-book me-1"></i><span id="statContacts">0</span><span class="pse-footer-label"> contacts</span></button>
       <button class="pse-footer-action" id="footerQueueAction" title="No queued deletions to undo" disabled><i class="fa-solid fa-list-check me-1"></i><span id="statQueue">0</span><span class="pse-footer-label"> queued</span></button>
-      <span class="ms-auto pse-footer-version">PSE <?= PSE_VERSION ?></span>
+      <button class="ms-auto pse-footer-version" id="footerVersionCheck" type="button" title="Check GitHub for a newer version">PSE <?= PSE_VERSION ?></button>
       <button class="pse-footer-action pse-mobile-pane-arrow" id="mobilePaneForward" type="button" title="Next mobile pane" aria-label="Next mobile pane"><i class="fa-solid fa-chevron-right"></i></button>
     </footer>
     <div class="pse-mobile-swipe-hint" id="mobileSwipeBackHint" aria-hidden="true">
@@ -19102,6 +19227,70 @@ if (!headers_sent()) {
         }
       }
 
+      function closeQuickAccountMenu() {
+        const menu = $('#accountQuickMenu');
+        const button = $('#activeAccountButton');
+        if (menu) menu.hidden = true;
+        if (button) button.setAttribute('aria-expanded', 'false');
+      }
+
+      function renderQuickAccountSwitcher(settings = initialSettings) {
+        const button = $('#activeAccountButton');
+        const name = $('#activeAccountName');
+        const menu = $('#accountQuickMenu');
+        const chevron = $('#accountQuickChevron');
+        if (!button || !name || !menu || !chevron) return;
+
+        const accounts = Array.isArray(settings.accounts) ? settings.accounts : [];
+        const switchable = accounts.length > 1;
+        name.textContent = settings.account_name || 'Account';
+        button.title = switchable ? `Switch account — ${settings.account_name || 'Account'}` : (settings.account_name || 'Account');
+        button.classList.toggle('switchable', switchable);
+        button.disabled = !switchable;
+        button.setAttribute('aria-disabled', switchable ? 'false' : 'true');
+        chevron.classList.toggle('d-none', !switchable);
+
+        if (!switchable) {
+          menu.innerHTML = '';
+          closeQuickAccountMenu();
+          return;
+        }
+
+        menu.innerHTML = accounts.map(account => {
+          const active = String(account.id) === String(settings.account_id);
+          const detail = account.google_email || account.username || account.from_email || (account.type === 'gmail' ? 'Google account' : 'IMAP account');
+          const icon = account.type === 'gmail' ? 'fa-brands fa-google' : 'fa-solid fa-envelope';
+          return `
+            <button class="pse-account-menu-item${active ? ' active' : ''}" type="button" role="menuitem" data-account-id="${escapeHtml(account.id)}"${active ? ' aria-current="true"' : ''}>
+              <span class="pse-account-menu-icon"><i class="${icon}"></i></span>
+              <span class="pse-account-menu-copy"><span class="pse-account-menu-name">${escapeHtml(account.name || account.id)}</span><span class="pse-account-menu-detail">${escapeHtml(detail)}</span></span>
+              <span class="pse-account-menu-check">${active ? '<i class="fa-solid fa-check"></i>' : ''}</span>
+            </button>`;
+        }).join('');
+
+        $$('.pse-account-menu-item', menu).forEach(item => {
+          item.addEventListener('click', () => quickSwitchAccount(item.dataset.accountId || ''));
+        });
+      }
+
+      async function quickSwitchAccount(accountId) {
+        accountId = String(accountId || '');
+        if (!accountId || accountId === String(initialSettings.account_id || '')) {
+          closeQuickAccountMenu();
+          return;
+        }
+        closeQuickAccountMenu();
+        try {
+          const result = await api('switch_account', {account_id: accountId}, {spinnerText: 'Switching email account…'});
+          const oldName = initialSettings.account_name || 'account';
+          const newName = result.settings?.account_name || 'account';
+          try { sessionStorage.setItem('pse_account_switched', `${oldName} → ${newName}`); } catch (ignore) {}
+          location.reload();
+        } catch (error) {
+          handleError(error);
+        }
+      }
+
       function applySettingsToForm(settings) {
         Object.assign(serverSettings, settings);
         const effectiveSettings = effectiveSettingsFromServer(settings);
@@ -19131,8 +19320,7 @@ if (!headers_sent()) {
           ? 'Saved — leave blank to keep it'
           : 'Enter Google OAuth Client Secret';
         $('#google_redirect_uri').value = effectiveSettings.google_redirect_uri || '';
-        $('#activeAccountName').textContent = effectiveSettings.account_name;
-        $('#activeAccountName').title = effectiveSettings.account_name;
+        renderQuickAccountSwitcher(effectiveSettings);
         const appTitle = String(effectiveSettings.app_title || 'PSE Email');
         document.title = appTitle;
         const brandTitle = $('.pse-brand-title');
@@ -19419,6 +19607,28 @@ if (!headers_sent()) {
         }
       }
 
+      async function promptApplicationUpdate(update) {
+        if (!update?.updateAvailable) return false;
+        const answer = await Swal.fire({
+          target: activeSwalTarget(),
+          icon: 'info',
+          title: 'PSE update available',
+          html: `
+            <div class="py-2">
+              <div class="fs-4 fw-bold">${escapeHtml(update.currentVersion)} <i class="fa-solid fa-arrow-right mx-2 text-pse"></i> ${escapeHtml(update.latestVersion)}</div>
+              <div class="text-secondary mt-2">A newer version is available from the official GitHub repository.</div>
+            </div>`,
+          showCancelButton: true,
+          confirmButtonText: '<i class="fa-solid fa-download me-1"></i>Update now',
+          cancelButtonText: 'Later'
+        });
+        if (answer.isConfirmed) {
+          await installApplicationUpdate(update, false);
+          return true;
+        }
+        return false;
+      }
+
       async function installApplicationUpdate(update, automatic = false) {
         if (!update?.updateAvailable) return;
         try {
@@ -19444,7 +19654,7 @@ if (!headers_sent()) {
         }
       }
 
-      async function checkApplicationUpdate(force = false, startup = false) {
+      async function checkApplicationUpdate(force = false, startup = false, offerInstall = false) {
         try {
           const result = await api('update_check', {force}, {
             spinner: force,
@@ -19466,23 +19676,10 @@ if (!headers_sent()) {
             try { alreadyPrompted = sessionStorage.getItem(promptKey) === '1'; } catch (ignore) {}
             if (!alreadyPrompted) {
               try { sessionStorage.setItem(promptKey, '1'); } catch (ignore) {}
-              const answer = await Swal.fire({
-                target: activeSwalTarget(),
-                icon: 'info',
-                title: 'PSE update available',
-                html: `
-                  <div class="py-2">
-                    <div class="fs-4 fw-bold">${escapeHtml(update.currentVersion)} <i class="fa-solid fa-arrow-right mx-2 text-pse"></i> ${escapeHtml(update.latestVersion)}</div>
-                    <div class="text-secondary mt-2">A newer version is available from the official GitHub repository.</div>
-                  </div>`,
-                showCancelButton: true,
-                confirmButtonText: '<i class="fa-solid fa-download me-1"></i>Update now',
-                cancelButtonText: 'Later'
-              });
-              if (answer.isConfirmed) {
-                await installApplicationUpdate(update, false);
-              }
+              await promptApplicationUpdate(update);
             }
+          } else if (update.updateAvailable && offerInstall) {
+            await promptApplicationUpdate(update);
           } else if (force && update.status === 'current') {
             toast(`PSE ${update.currentVersion} is up to date.`, 'success');
           } else if (force && !update.updateAvailable) {
@@ -19506,6 +19703,15 @@ if (!headers_sent()) {
           if (update?.oldVersion && update?.newVersion) {
             toast(`PSE updated ${update.oldVersion} → ${update.newVersion}.`, 'success');
           }
+        } catch (ignore) {}
+      }
+
+      function showAccountSwitchedNotice() {
+        try {
+          const text = sessionStorage.getItem('pse_account_switched');
+          if (!text) return;
+          sessionStorage.removeItem('pse_account_switched');
+          toast(`Account switched: ${text}.`, 'success');
         } catch (ignore) {}
       }
 
@@ -20139,6 +20345,24 @@ if (!headers_sent()) {
       $('#chooseAppIcon').addEventListener('click', () => $('#appIconFile').click());
       $('#appIconFile').addEventListener('change', event => uploadApplicationIcon(event.target.files?.[0] || null));
       $('#checkUpdatesNow').addEventListener('click', () => checkApplicationUpdate(true, false));
+      $('#footerVersionCheck')?.addEventListener('click', () => checkApplicationUpdate(true, false, true));
+      $('#activeAccountButton')?.addEventListener('click', event => {
+        const button = event.currentTarget;
+        if (!button.classList.contains('switchable')) return;
+        const menu = $('#accountQuickMenu');
+        const willOpen = menu.hidden;
+        closeQuickAccountMenu();
+        if (willOpen) {
+          menu.hidden = false;
+          button.setAttribute('aria-expanded', 'true');
+        }
+      });
+      document.addEventListener('click', event => {
+        if (!event.target.closest('#accountQuickSwitcher')) closeQuickAccountMenu();
+      });
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') closeQuickAccountMenu();
+      });
       $('#installUpdateNow').addEventListener('click', () => {
         if (lastUpdateInfo?.updateAvailable) installApplicationUpdate(lastUpdateInfo, false);
       });
@@ -20213,6 +20437,7 @@ if (!headers_sent()) {
       loadMailboxPreferences();
       updateQueueStat();
       showAppliedUpdateNotice();
+      showAccountSwitchedNotice();
       window.setTimeout(() => checkApplicationUpdate(false, true), 700);
       loadFolders().then(() => {
         window.setTimeout(pollFolderStatus, 5000);
