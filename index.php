@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.17.20
+ * PSE Email (PSE), release v2.17.21
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.17.20';
+const PSE_VERSION = '2.17.21';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -11197,6 +11197,74 @@ if (!headers_sent()) {
     .pse-emoji-choice:focus {
       background: var(--pse-hover);
     }
+    .pse-compose-sticky-top {
+      position: sticky;
+      top: 0;
+      z-index: 8;
+      padding-bottom: .35rem;
+      background: var(--pse-panel);
+      box-shadow: 0 12px 16px -18px rgba(15, 31, 56, .7);
+    }
+    .pse-color-picker-menu {
+      width: 218px;
+      max-width: calc(100vw - 32px);
+      color: var(--pse-text);
+      background: var(--pse-panel);
+      border-color: var(--pse-border);
+    }
+    .pse-color-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 38px);
+      justify-content: center;
+      gap: 8px;
+    }
+    .pse-color-choice {
+      position: relative;
+      width: 38px;
+      height: 38px;
+      padding: 0;
+      border: 2px solid color-mix(in srgb, var(--pse-border) 84%, #000);
+      border-radius: 8px;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
+    }
+    .pse-color-choice:hover,
+    .pse-color-choice:focus-visible {
+      transform: scale(1.08);
+      outline: 2px solid color-mix(in srgb, var(--pse-primary) 55%, transparent);
+      outline-offset: 1px;
+    }
+    .pse-color-choice.active::after {
+      content: '\2713';
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 800;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, .85);
+    }
+    .pse-color-choice[data-light="1"].active::after {
+      color: #172033;
+      text-shadow: 0 1px 2px rgba(255, 255, 255, .9);
+    }
+    .pse-current-color {
+      width: 18px;
+      height: 18px;
+      display: inline-block;
+      flex: 0 0 18px;
+      border: 1px solid rgba(0, 0, 0, .35);
+      border-radius: 4px;
+      background: #202632;
+    }
+    .pse-native-color-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+    }
     .pse-compose-body {
       min-height: 280px;
       transition: border-color .15s, box-shadow .15s, background .15s;
@@ -12079,80 +12147,101 @@ if (!headers_sent()) {
         </div>
         <div class="modal-body">
           <input type="hidden" id="composePseId">
-          <div class="row g-2 align-items-start mb-2">
-            <div class="col-auto">
-              <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="to" type="button">To:</button>
-            </div>
-            <div class="col">
-              <div class="pse-recipient-area" id="toRecipients"></div>
-            </div>
-          </div>
-          <div class="row g-2 align-items-start mb-2" id="ccRow">
-            <div class="col-auto">
-              <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="cc" type="button">Cc:</button>
-            </div>
-            <div class="col">
-              <div class="pse-recipient-area" id="ccRecipients"></div>
-            </div>
-          </div>
-          <div class="row g-2 align-items-start mb-2" id="bccRow">
-            <div class="col-auto">
-              <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="bcc" type="button">Bcc:</button>
-            </div>
-            <div class="col">
-              <div class="pse-recipient-area" id="bccRecipients"></div>
-            </div>
-          </div>
-          <div class="d-flex justify-content-end gap-3 mb-2">
-            <button class="btn btn-link btn-sm p-0" type="button" id="toggleCc">Hide Cc</button>
-            <button class="btn btn-link btn-sm p-0" type="button" id="toggleBcc">Hide Bcc</button>
-          </div>
-          <div class="input-group mb-2 pse-compose-editable">
-            <span class="input-group-text">Subject</span>
-            <input class="form-control" id="composeSubject">
-          </div>
-          <div class="btn-toolbar gap-1 border rounded-top p-1 bg-light pse-compose-editable" role="toolbar">
-            <button class="btn btn-sm btn-light compose-format" type="button" data-command="bold" title="Bold"><i class="fa-solid fa-bold"></i></button>
-            <button class="btn btn-sm btn-light compose-format" type="button" data-command="italic" title="Italic"><i class="fa-solid fa-italic"></i></button>
-            <button class="btn btn-sm btn-light compose-format" type="button" data-command="underline" title="Underline"><i class="fa-solid fa-underline"></i></button>
-            <button class="btn btn-sm btn-light compose-format" type="button" data-command="createLink" title="Link"><i class="fa-solid fa-link"></i></button>
-            <label class="btn btn-sm btn-light d-inline-flex align-items-center gap-1 mb-0" for="composeTextColor" title="Text color">
-              <i class="fa-solid fa-font" aria-hidden="true"></i>
-              <span class="d-none d-lg-inline">Text</span>
-              <input class="form-control form-control-color form-control-sm" id="composeTextColor" type="color" value="#202632" aria-label="Text color" style="width:28px;height:25px;padding:2px">
-            </label>
-            <label class="btn btn-sm btn-light d-inline-flex align-items-center gap-1 mb-0" for="composeBackgroundColor" title="Text background color">
-              <i class="fa-solid fa-fill-drip" aria-hidden="true"></i>
-              <span class="d-none d-lg-inline">Background</span>
-              <input class="form-control form-control-color form-control-sm" id="composeBackgroundColor" type="color" value="#fff2a8" aria-label="Text background color" style="width:28px;height:25px;padding:2px">
-            </label>
-            <select class="form-select form-select-sm" id="composeFontSize" title="Font size" aria-label="Font size" style="width:auto">
-              <option value="">Size</option>
-              <option value="10">10 px</option>
-              <option value="12">12 px</option>
-              <option value="14">14 px</option>
-              <option value="16">16 px</option>
-              <option value="18">18 px</option>
-              <option value="24">24 px</option>
-              <option value="32">32 px</option>
-            </select>
-            <div class="dropdown d-inline-flex align-items-center">
-              <button
-                class="btn btn-sm btn-light d-inline-flex align-items-center justify-content-center"
-                id="composeEmojiButton"
-                type="button"
-                data-bs-toggle="dropdown"
-                aria-expanded="false"
-                title="Insert emoticon"
-                aria-label="Insert emoticon"
-              ><i class="fa-regular fa-face-smile"></i></button>
-              <div class="dropdown-menu p-2 pse-emoji-menu" aria-labelledby="composeEmojiButton">
-                <div class="pse-emoji-grid" id="composeEmojiGrid"></div>
+          <div class="pse-compose-sticky-top">
+            <div class="row g-2 align-items-start mb-2">
+              <div class="col-auto">
+                <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="to" type="button">To:</button>
+              </div>
+              <div class="col">
+                <div class="pse-recipient-area" id="toRecipients"></div>
               </div>
             </div>
-            <button class="btn btn-sm btn-light" id="insertImageButton" type="button" title="Insert image"><i class="fa-regular fa-image"></i></button>
-            <button class="btn btn-sm btn-light compose-format" type="button" data-command="removeFormat" title="Clear formatting"><i class="fa-solid fa-eraser"></i></button>
-            <input type="file" id="composeImageInput" accept="image/*" hidden>
+            <div class="row g-2 align-items-start mb-2" id="ccRow">
+              <div class="col-auto">
+                <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="cc" type="button">Cc:</button>
+              </div>
+              <div class="col">
+                <div class="pse-recipient-area" id="ccRecipients"></div>
+              </div>
+            </div>
+            <div class="row g-2 align-items-start mb-2" id="bccRow">
+              <div class="col-auto">
+                <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="bcc" type="button">Bcc:</button>
+              </div>
+              <div class="col">
+                <div class="pse-recipient-area" id="bccRecipients"></div>
+              </div>
+            </div>
+            <div class="d-flex justify-content-end gap-3 mb-2">
+              <button class="btn btn-link btn-sm p-0" type="button" id="toggleCc">Hide Cc</button>
+              <button class="btn btn-link btn-sm p-0" type="button" id="toggleBcc">Hide Bcc</button>
+            </div>
+            <div class="input-group mb-2 pse-compose-editable">
+              <span class="input-group-text">Subject</span>
+              <input class="form-control" id="composeSubject">
+            </div>
+            <div class="btn-toolbar gap-1 border rounded-top p-1 bg-light pse-compose-editable" role="toolbar">
+              <button class="btn btn-sm btn-light compose-format" type="button" data-command="bold" title="Bold"><i class="fa-solid fa-bold"></i></button>
+              <button class="btn btn-sm btn-light compose-format" type="button" data-command="italic" title="Italic"><i class="fa-solid fa-italic"></i></button>
+              <button class="btn btn-sm btn-light compose-format" type="button" data-command="underline" title="Underline"><i class="fa-solid fa-underline"></i></button>
+              <button class="btn btn-sm btn-light compose-format" type="button" data-command="createLink" title="Link"><i class="fa-solid fa-link"></i></button>
+              <div class="dropdown d-inline-flex align-items-center">
+                <button
+                  class="btn btn-sm btn-light d-inline-flex align-items-center gap-1"
+                  id="composeTextColorButton"
+                  type="button"
+                  data-bs-toggle="dropdown"
+                  data-bs-auto-close="true"
+                  aria-expanded="false"
+                  title="Text color"
+                >
+                  <i class="fa-solid fa-font" aria-hidden="true"></i>
+                  <span class="d-none d-lg-inline">Text</span>
+                  <span class="pse-current-color" id="composeTextColorSwatch" aria-hidden="true"></span>
+                </button>
+                <div class="dropdown-menu p-3 pse-color-picker-menu" aria-labelledby="composeTextColorButton">
+                  <div class="small fw-semibold mb-2">Text color</div>
+                  <div class="pse-color-grid" id="composeTextColorPalette" role="group" aria-label="Common text colors"></div>
+                  <hr class="my-3">
+                  <button class="btn btn-sm btn-outline-secondary w-100" id="composeCustomTextColorButton" type="button">
+                    <i class="fa-solid fa-sliders me-1" aria-hidden="true"></i>Pick from slider…
+                  </button>
+                  <input class="pse-native-color-input" id="composeTextColor" type="color" value="#202632" aria-label="Custom text color">
+                </div>
+              </div>
+              <label class="btn btn-sm btn-light d-inline-flex align-items-center gap-1 mb-0" for="composeBackgroundColor" title="Text background color">
+                <i class="fa-solid fa-fill-drip" aria-hidden="true"></i>
+                <span class="d-none d-lg-inline">Background</span>
+                <input class="form-control form-control-color form-control-sm" id="composeBackgroundColor" type="color" value="#fff2a8" aria-label="Text background color" style="width:28px;height:25px;padding:2px">
+              </label>
+              <select class="form-select form-select-sm" id="composeFontSize" title="Font size" aria-label="Font size" style="width:auto">
+                <option value="">Size</option>
+                <option value="10">10 px</option>
+                <option value="12">12 px</option>
+                <option value="14">14 px</option>
+                <option value="16">16 px</option>
+                <option value="18">18 px</option>
+                <option value="24">24 px</option>
+                <option value="32">32 px</option>
+              </select>
+              <div class="dropdown d-inline-flex align-items-center">
+                <button
+                  class="btn btn-sm btn-light d-inline-flex align-items-center justify-content-center"
+                  id="composeEmojiButton"
+                  type="button"
+                  data-bs-toggle="dropdown"
+                  aria-expanded="false"
+                  title="Insert emoticon"
+                  aria-label="Insert emoticon"
+                ><i class="fa-regular fa-face-smile"></i></button>
+                <div class="dropdown-menu p-2 pse-emoji-menu" aria-labelledby="composeEmojiButton">
+                  <div class="pse-emoji-grid" id="composeEmojiGrid"></div>
+                </div>
+              </div>
+              <button class="btn btn-sm btn-light" id="insertImageButton" type="button" title="Insert image"><i class="fa-regular fa-image"></i></button>
+              <button class="btn btn-sm btn-light compose-format" type="button" data-command="removeFormat" title="Clear formatting"><i class="fa-solid fa-eraser"></i></button>
+              <input type="file" id="composeImageInput" accept="image/*" hidden>
+            </div>
           </div>
           <div
             class="form-control rounded-top-0 pse-compose-body pse-compose-editable"
@@ -17629,8 +17718,27 @@ if (!headers_sent()) {
 
       function restoreRememberedComposeColorPickers() {
         const colors = rememberedComposeColors();
-        $('#composeTextColor').value = colors.text;
+        setComposeTextColorPickerValue(colors.text);
         $('#composeBackgroundColor').value = colors.background;
+      }
+
+      function setComposeTextColorPickerValue(value) {
+        const color = validComposeColor(value, '#202632').toLowerCase();
+        $('#composeTextColor').value = color;
+        $('#composeTextColorSwatch').style.backgroundColor = color;
+        $('#composeTextColorSwatch').title = color.toUpperCase();
+        $$('.pse-color-choice', $('#composeTextColorPalette')).forEach(button => {
+          const active = String(button.dataset.color || '').toLowerCase() === color;
+          button.classList.toggle('active', active);
+          button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+      }
+
+      function chooseComposeTextColor(value) {
+        const color = validComposeColor(value, '#202632').toLowerCase();
+        setComposeTextColorPickerValue(color);
+        rememberComposeColor('text_color', color);
+        applyComposeColor('foreColor', 'color', color);
       }
 
       function suppressBrowserAutofill(root = document) {
@@ -18497,7 +18605,9 @@ if (!headers_sent()) {
           const marker = document.createTextNode('\u200b');
           span.appendChild(marker);
           range.insertNode(span);
-          range.setStart(marker, marker.length);
+          // Keep the caret before the marker and therefore inside the styled span.
+          // A caret after the marker can be normalized outside the span by Firefox/WebKit.
+          range.setStart(marker, 0);
           range.collapse(true);
           selection.removeAllRanges();
           selection.addRange(range);
@@ -18523,7 +18633,7 @@ if (!headers_sent()) {
           const marker = document.createTextNode('\u200b');
           span.appendChild(marker);
           range.insertNode(span);
-          range.setStart(marker, marker.length);
+          range.setStart(marker, 0);
           range.collapse(true);
           selection.removeAllRanges();
           selection.addRange(range);
@@ -20131,6 +20241,48 @@ if (!headers_sent()) {
         button.addEventListener('click', () => insertComposeText(button.dataset.emoji || ''));
       });
 
+      const composeTextColors = [
+        {value: '#000000', name: 'Black'},
+        {value: '#343a40', name: 'Dark gray'},
+        {value: '#6c757d', name: 'Gray'},
+        {value: '#ffffff', name: 'White', light: true},
+        {value: '#dc3545', name: 'Red'},
+        {value: '#fd7e14', name: 'Orange'},
+        {value: '#ffc107', name: 'Yellow', light: true},
+        {value: '#795548', name: 'Brown'},
+        {value: '#198754', name: 'Green'},
+        {value: '#20c997', name: 'Teal', light: true},
+        {value: '#0dcaf0', name: 'Cyan', light: true},
+        {value: '#0d6efd', name: 'Blue'},
+        {value: '#084298', name: 'Dark blue'},
+        {value: '#6610f2', name: 'Indigo'},
+        {value: '#6f42c1', name: 'Purple'},
+        {value: '#d63384', name: 'Pink'}
+      ];
+      $('#composeTextColorPalette').innerHTML = composeTextColors.map(color => `
+        <button
+          class="pse-color-choice"
+          type="button"
+          data-color="${color.value}"
+          data-light="${color.light ? '1' : '0'}"
+          style="background-color:${color.value}"
+          title="${color.name} (${color.value.toUpperCase()})"
+          aria-label="${color.name}"
+          aria-pressed="false"
+        ></button>
+      `).join('');
+      setComposeTextColorPickerValue(rememberedComposeColors().text);
+      $('#composeTextColorButton').addEventListener('pointerdown', saveComposeSelection);
+      $$('.pse-color-choice', $('#composeTextColorPalette')).forEach(button => {
+        button.addEventListener('pointerdown', event => event.preventDefault());
+        button.addEventListener('click', () => chooseComposeTextColor(button.dataset.color));
+      });
+      $('#composeCustomTextColorButton').addEventListener('pointerdown', event => {
+        event.preventDefault();
+        saveComposeSelection();
+      });
+      $('#composeCustomTextColorButton').addEventListener('click', () => $('#composeTextColor').click());
+
       $$('.compose-format').forEach(button => button.addEventListener('click', async event => {
         event.preventDefault();
         const command = button.dataset.command;
@@ -20152,8 +20304,7 @@ if (!headers_sent()) {
         $(selector).addEventListener('pointerdown', saveComposeSelection);
       });
       $('#composeTextColor').addEventListener('change', event => {
-        rememberComposeColor('text_color', event.target.value);
-        applyComposeColor('foreColor', 'color', event.target.value);
+        chooseComposeTextColor(event.target.value);
       });
       $('#composeBackgroundColor').addEventListener('change', event => {
         rememberComposeColor('background_color', event.target.value);
