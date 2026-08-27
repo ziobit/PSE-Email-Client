@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.17.22
+ * PSE Email (PSE), release v2.17.24
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.17.23';
+const PSE_VERSION = '2.17.24';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -18891,48 +18891,115 @@ if (!headers_sent()) {
         selection.addRange(state.composeRange);
       }
 
-      function clearComposeFormatting() {
-        restoreComposeSelection();
-        document.execCommand('removeFormat', false, null);
-        const selection = window.getSelection();
-        if (selection?.rangeCount) {
-          const range = selection.getRangeAt(0);
-          range.collapse(false);
-          selection.removeAllRanges();
-          selection.addRange(range);
-          state.composeRange = range.cloneRange();
-        }
-        state.composePlainAfterClear = true;
-        markComposeDirty();
+      function composeIsBlockElement(node) {
+        return Boolean(node?.nodeType === Node.ELEMENT_NODE && /^(DIV|P|LI|PRE|BLOCKQUOTE)$/.test(node.tagName || ''));
       }
 
-      function composeBlockAtSelection() {
+      function composeBlockForNode(node) {
         const body = $('#composeBody');
-        const selection = window.getSelection();
-        if (!selection?.rangeCount) return null;
-        let node = selection.getRangeAt(0).startContainer;
-        if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+        if (!node) return null;
+        if (node.nodeType === Node.TEXT_NODE || node.nodeType === Node.COMMENT_NODE) node = node.parentNode;
         while (node && node !== body) {
-          if (/^(DIV|P|LI|PRE|BLOCKQUOTE)$/.test(node.tagName || '')) return node;
-          node = node.parentElement;
+          if (composeIsBlockElement(node)) return node;
+          node = node.parentNode;
         }
         return null;
       }
 
-      function makeCurrentComposeLinePlain() {
-        const block = composeBlockAtSelection();
-        if (!block) return;
-        block.style.removeProperty('color');
-        block.style.removeProperty('background-color');
-        block.style.removeProperty('font-size');
-        block.style.removeProperty('font-family');
-        block.style.removeProperty('font-weight');
-        block.style.removeProperty('font-style');
-        block.style.removeProperty('text-decoration');
-        block.querySelectorAll('b,strong,i,em,u,s,strike,font,span').forEach(element => {
+      function composeBlockAtSelection() {
+        const selection = window.getSelection();
+        if (!selection?.rangeCount) return null;
+        return composeBlockForNode(selection.getRangeAt(0).startContainer);
+      }
+
+      function makeComposeFormattingRootPlain(root) {
+        if (!root) return;
+        if (root.nodeType === Node.ELEMENT_NODE) {
+          root.style.removeProperty('color');
+          root.style.removeProperty('background-color');
+          root.style.removeProperty('font-size');
+          root.style.removeProperty('font-family');
+          root.style.removeProperty('font-weight');
+          root.style.removeProperty('font-style');
+          root.style.removeProperty('text-decoration');
+        }
+        root.querySelectorAll?.('b,strong,i,em,u,s,strike,font,span').forEach(element => {
           while (element.firstChild) element.parentNode.insertBefore(element.firstChild, element);
           element.remove();
         });
+      }
+
+      function makeComposeBodyLinePlain(marker) {
+        const body = $('#composeBody');
+        let top = marker;
+        while (top.parentNode && top.parentNode !== body) top = top.parentNode;
+        if (top.parentNode !== body) return;
+
+        let first = top;
+        while (first.previousSibling && first.previousSibling.nodeName !== 'BR' && !composeIsBlockElement(first.previousSibling)) {
+          first = first.previousSibling;
+        }
+        let last = top;
+        while (last.nextSibling && last.nextSibling.nodeName !== 'BR' && !composeIsBlockElement(last.nextSibling)) {
+          last = last.nextSibling;
+        }
+
+        const after = last.nextSibling;
+        const wrapper = document.createElement('span');
+        wrapper.dataset.psePlainLine = '1';
+        body.insertBefore(wrapper, first);
+        let node = first;
+        while (node && node !== after) {
+          const next = node.nextSibling;
+          wrapper.appendChild(node);
+          node = next;
+        }
+        makeComposeFormattingRootPlain(wrapper);
+        while (wrapper.firstChild) body.insertBefore(wrapper.firstChild, wrapper);
+        wrapper.remove();
+      }
+
+      function makeCurrentComposeLinePlain(marker = null) {
+        const block = marker ? composeBlockForNode(marker) : composeBlockAtSelection();
+        if (block) {
+          makeComposeFormattingRootPlain(block);
+          return;
+        }
+        if (marker) makeComposeBodyLinePlain(marker);
+      }
+
+      function clearComposeFormatting() {
+        restoreComposeSelection();
+        const selection = window.getSelection();
+        if (!selection?.rangeCount) return;
+        const range = selection.getRangeAt(0);
+
+        if (range.collapsed) {
+          // removeFormat has no visible effect on a collapsed caret. In that case
+          // Clear formatting means the complete current compose row, while a
+          // temporary comment keeps the caret at the same logical position.
+          const marker = document.createComment('pse-clear-format-caret');
+          range.insertNode(marker);
+          makeCurrentComposeLinePlain(marker);
+
+          const caret = document.createRange();
+          caret.setStartBefore(marker);
+          caret.collapse(true);
+          marker.remove();
+          selection.removeAllRanges();
+          selection.addRange(caret);
+          state.composeRange = caret.cloneRange();
+        } else {
+          document.execCommand('removeFormat', false, null);
+          const clearedRange = selection.getRangeAt(0);
+          clearedRange.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(clearedRange);
+          state.composeRange = clearedRange.cloneRange();
+        }
+
+        state.composePlainAfterClear = true;
+        markComposeDirty();
       }
 
       function applyComposeColor(command, styleProperty, value) {
