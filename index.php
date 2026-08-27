@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.17.21
+ * PSE Email (PSE), release v2.17.22
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.17.21';
+const PSE_VERSION = '2.17.22';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -11197,13 +11197,13 @@ if (!headers_sent()) {
     .pse-emoji-choice:focus {
       background: var(--pse-hover);
     }
-    .pse-compose-sticky-top {
+    .pse-compose-format-sticky {
       position: sticky;
       top: 0;
       z-index: 8;
-      padding-bottom: .35rem;
       background: var(--pse-panel);
       box-shadow: 0 12px 16px -18px rgba(15, 31, 56, .7);
+      isolation: isolate;
     }
     .pse-color-picker-menu {
       width: 218px;
@@ -12147,101 +12147,99 @@ if (!headers_sent()) {
         </div>
         <div class="modal-body">
           <input type="hidden" id="composePseId">
-          <div class="pse-compose-sticky-top">
-            <div class="row g-2 align-items-start mb-2">
-              <div class="col-auto">
-                <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="to" type="button">To:</button>
-              </div>
-              <div class="col">
-                <div class="pse-recipient-area" id="toRecipients"></div>
-              </div>
+          <div class="row g-2 align-items-start mb-2">
+            <div class="col-auto">
+              <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="to" type="button">To:</button>
             </div>
-            <div class="row g-2 align-items-start mb-2" id="ccRow">
-              <div class="col-auto">
-                <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="cc" type="button">Cc:</button>
-              </div>
-              <div class="col">
-                <div class="pse-recipient-area" id="ccRecipients"></div>
-              </div>
+            <div class="col">
+              <div class="pse-recipient-area" id="toRecipients"></div>
             </div>
-            <div class="row g-2 align-items-start mb-2" id="bccRow">
-              <div class="col-auto">
-                <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="bcc" type="button">Bcc:</button>
-              </div>
-              <div class="col">
-                <div class="pse-recipient-area" id="bccRecipients"></div>
-              </div>
+          </div>
+          <div class="row g-2 align-items-start mb-2" id="ccRow">
+            <div class="col-auto">
+              <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="cc" type="button">Cc:</button>
             </div>
-            <div class="d-flex justify-content-end gap-3 mb-2">
-              <button class="btn btn-link btn-sm p-0" type="button" id="toggleCc">Hide Cc</button>
-              <button class="btn btn-link btn-sm p-0" type="button" id="toggleBcc">Hide Bcc</button>
+            <div class="col">
+              <div class="pse-recipient-area" id="ccRecipients"></div>
             </div>
-            <div class="input-group mb-2 pse-compose-editable">
-              <span class="input-group-text">Subject</span>
-              <input class="form-control" id="composeSubject">
+          </div>
+          <div class="row g-2 align-items-start mb-2" id="bccRow">
+            <div class="col-auto">
+              <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="bcc" type="button">Bcc:</button>
             </div>
-            <div class="btn-toolbar gap-1 border rounded-top p-1 bg-light pse-compose-editable" role="toolbar">
-              <button class="btn btn-sm btn-light compose-format" type="button" data-command="bold" title="Bold"><i class="fa-solid fa-bold"></i></button>
-              <button class="btn btn-sm btn-light compose-format" type="button" data-command="italic" title="Italic"><i class="fa-solid fa-italic"></i></button>
-              <button class="btn btn-sm btn-light compose-format" type="button" data-command="underline" title="Underline"><i class="fa-solid fa-underline"></i></button>
-              <button class="btn btn-sm btn-light compose-format" type="button" data-command="createLink" title="Link"><i class="fa-solid fa-link"></i></button>
-              <div class="dropdown d-inline-flex align-items-center">
-                <button
-                  class="btn btn-sm btn-light d-inline-flex align-items-center gap-1"
-                  id="composeTextColorButton"
-                  type="button"
-                  data-bs-toggle="dropdown"
-                  data-bs-auto-close="true"
-                  aria-expanded="false"
-                  title="Text color"
-                >
-                  <i class="fa-solid fa-font" aria-hidden="true"></i>
-                  <span class="d-none d-lg-inline">Text</span>
-                  <span class="pse-current-color" id="composeTextColorSwatch" aria-hidden="true"></span>
+            <div class="col">
+              <div class="pse-recipient-area" id="bccRecipients"></div>
+            </div>
+          </div>
+          <div class="d-flex justify-content-end gap-3 mb-2">
+            <button class="btn btn-link btn-sm p-0" type="button" id="toggleCc">Hide Cc</button>
+            <button class="btn btn-link btn-sm p-0" type="button" id="toggleBcc">Hide Bcc</button>
+          </div>
+          <div class="input-group mb-2 pse-compose-editable">
+            <span class="input-group-text">Subject</span>
+            <input class="form-control" id="composeSubject">
+          </div>
+          <div class="btn-toolbar gap-1 border rounded-top p-1 bg-light pse-compose-editable pse-compose-format-sticky" role="toolbar">
+            <button class="btn btn-sm btn-light compose-format" type="button" data-command="bold" title="Bold"><i class="fa-solid fa-bold"></i></button>
+            <button class="btn btn-sm btn-light compose-format" type="button" data-command="italic" title="Italic"><i class="fa-solid fa-italic"></i></button>
+            <button class="btn btn-sm btn-light compose-format" type="button" data-command="underline" title="Underline"><i class="fa-solid fa-underline"></i></button>
+            <button class="btn btn-sm btn-light compose-format" type="button" data-command="createLink" title="Link"><i class="fa-solid fa-link"></i></button>
+            <div class="dropdown d-inline-flex align-items-center">
+              <button
+                class="btn btn-sm btn-light d-inline-flex align-items-center gap-1"
+                id="composeTextColorButton"
+                type="button"
+                data-bs-toggle="dropdown"
+                data-bs-auto-close="true"
+                aria-expanded="false"
+                title="Text color"
+              >
+                <i class="fa-solid fa-font" aria-hidden="true"></i>
+                <span class="d-none d-lg-inline">Text</span>
+                <span class="pse-current-color" id="composeTextColorSwatch" aria-hidden="true"></span>
+              </button>
+              <div class="dropdown-menu p-3 pse-color-picker-menu" aria-labelledby="composeTextColorButton">
+                <div class="small fw-semibold mb-2">Text color</div>
+                <div class="pse-color-grid" id="composeTextColorPalette" role="group" aria-label="Common text colors"></div>
+                <hr class="my-3">
+                <button class="btn btn-sm btn-outline-secondary w-100" id="composeCustomTextColorButton" type="button">
+                  <i class="fa-solid fa-sliders me-1" aria-hidden="true"></i>Pick from slider…
                 </button>
-                <div class="dropdown-menu p-3 pse-color-picker-menu" aria-labelledby="composeTextColorButton">
-                  <div class="small fw-semibold mb-2">Text color</div>
-                  <div class="pse-color-grid" id="composeTextColorPalette" role="group" aria-label="Common text colors"></div>
-                  <hr class="my-3">
-                  <button class="btn btn-sm btn-outline-secondary w-100" id="composeCustomTextColorButton" type="button">
-                    <i class="fa-solid fa-sliders me-1" aria-hidden="true"></i>Pick from slider…
-                  </button>
-                  <input class="pse-native-color-input" id="composeTextColor" type="color" value="#202632" aria-label="Custom text color">
-                </div>
+                <input class="pse-native-color-input" id="composeTextColor" type="color" value="#202632" aria-label="Custom text color">
               </div>
-              <label class="btn btn-sm btn-light d-inline-flex align-items-center gap-1 mb-0" for="composeBackgroundColor" title="Text background color">
-                <i class="fa-solid fa-fill-drip" aria-hidden="true"></i>
-                <span class="d-none d-lg-inline">Background</span>
-                <input class="form-control form-control-color form-control-sm" id="composeBackgroundColor" type="color" value="#fff2a8" aria-label="Text background color" style="width:28px;height:25px;padding:2px">
-              </label>
-              <select class="form-select form-select-sm" id="composeFontSize" title="Font size" aria-label="Font size" style="width:auto">
-                <option value="">Size</option>
-                <option value="10">10 px</option>
-                <option value="12">12 px</option>
-                <option value="14">14 px</option>
-                <option value="16">16 px</option>
-                <option value="18">18 px</option>
-                <option value="24">24 px</option>
-                <option value="32">32 px</option>
-              </select>
-              <div class="dropdown d-inline-flex align-items-center">
-                <button
-                  class="btn btn-sm btn-light d-inline-flex align-items-center justify-content-center"
-                  id="composeEmojiButton"
-                  type="button"
-                  data-bs-toggle="dropdown"
-                  aria-expanded="false"
-                  title="Insert emoticon"
-                  aria-label="Insert emoticon"
-                ><i class="fa-regular fa-face-smile"></i></button>
-                <div class="dropdown-menu p-2 pse-emoji-menu" aria-labelledby="composeEmojiButton">
-                  <div class="pse-emoji-grid" id="composeEmojiGrid"></div>
-                </div>
-              </div>
-              <button class="btn btn-sm btn-light" id="insertImageButton" type="button" title="Insert image"><i class="fa-regular fa-image"></i></button>
-              <button class="btn btn-sm btn-light compose-format" type="button" data-command="removeFormat" title="Clear formatting"><i class="fa-solid fa-eraser"></i></button>
-              <input type="file" id="composeImageInput" accept="image/*" hidden>
             </div>
+            <label class="btn btn-sm btn-light d-inline-flex align-items-center gap-1 mb-0" for="composeBackgroundColor" title="Text background color">
+              <i class="fa-solid fa-fill-drip" aria-hidden="true"></i>
+              <span class="d-none d-lg-inline">Background</span>
+              <input class="form-control form-control-color form-control-sm" id="composeBackgroundColor" type="color" value="#fff2a8" aria-label="Text background color" style="width:28px;height:25px;padding:2px">
+            </label>
+            <select class="form-select form-select-sm" id="composeFontSize" title="Font size" aria-label="Font size" style="width:auto">
+              <option value="">Size</option>
+              <option value="10">10 px</option>
+              <option value="12">12 px</option>
+              <option value="14">14 px</option>
+              <option value="16">16 px</option>
+              <option value="18">18 px</option>
+              <option value="24">24 px</option>
+              <option value="32">32 px</option>
+            </select>
+            <div class="dropdown d-inline-flex align-items-center">
+              <button
+                class="btn btn-sm btn-light d-inline-flex align-items-center justify-content-center"
+                id="composeEmojiButton"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+                title="Insert emoticon"
+                aria-label="Insert emoticon"
+              ><i class="fa-regular fa-face-smile"></i></button>
+              <div class="dropdown-menu p-2 pse-emoji-menu" aria-labelledby="composeEmojiButton">
+                <div class="pse-emoji-grid" id="composeEmojiGrid"></div>
+              </div>
+            </div>
+            <button class="btn btn-sm btn-light" id="insertImageButton" type="button" title="Insert image"><i class="fa-regular fa-image"></i></button>
+            <button class="btn btn-sm btn-light compose-format" type="button" data-command="removeFormat" title="Clear formatting"><i class="fa-solid fa-eraser"></i></button>
+            <input type="file" id="composeImageInput" accept="image/*" hidden>
           </div>
           <div
             class="form-control rounded-top-0 pse-compose-body pse-compose-editable"
