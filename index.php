@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.17.19
+ * PSE Email (PSE), release v2.17.20
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.17.19';
+const PSE_VERSION = '2.17.20';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -5120,6 +5120,9 @@ function pseMessageList(
   $page = max(1, $page);
   $perPage = max(10, min(200, (int)$settings['items_per_page']));
   $reverse = $sortOrder === 'desc';
+  // PHP 7.x declares imap_sort() parameter 3 as int, while PHP 8+ declares it as bool.
+  // With strict_types enabled, pass the exact type expected by the running PHP version.
+  $imapSortReverse = PHP_VERSION_ID < 80000 ? ($reverse ? 1 : 0) : $reverse;
   $uids = [];
   if ($search !== '' || $senderFilter !== '' || $unreadOnly || $startDate !== '') {
     $criteria = [];
@@ -5144,9 +5147,9 @@ function pseMessageList(
       }
     }
     $criteriaText = implode(' ', $criteria);
-    $uids = @imap_sort($imap, SORTDATE, $reverse, SE_UID, $criteriaText, 'UTF-8');
+    $uids = @imap_sort($imap, SORTDATE, $imapSortReverse, SE_UID, $criteriaText, 'UTF-8');
     if ($uids === false) {
-      $uids = @imap_sort($imap, SORTDATE, $reverse, SE_UID, $criteriaText);
+      $uids = @imap_sort($imap, SORTDATE, $imapSortReverse, SE_UID, $criteriaText);
     }
     if ($uids === false) {
       $uids = @imap_search($imap, $criteriaText, SE_UID, 'UTF-8');
@@ -5163,7 +5166,7 @@ function pseMessageList(
       $uids = is_array($uids) ? $uids : [];
     }
   } else {
-    $sorted = @imap_sort($imap, SORTDATE, $reverse, SE_UID);
+    $sorted = @imap_sort($imap, SORTDATE, $imapSortReverse, SE_UID);
     $uids = is_array($sorted) ? $sorted : [];
   }
   $allFolderUids = ($search === '' && $senderFilter === '' && !$unreadOnly && $startDate === '')
