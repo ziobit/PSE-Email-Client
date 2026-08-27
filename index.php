@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.17.24
+ * PSE Email (PSE), release v2.17.25
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.17.24';
+const PSE_VERSION = '2.17.25';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -18975,17 +18975,29 @@ if (!headers_sent()) {
         const range = selection.getRangeAt(0);
 
         if (range.collapsed) {
-          // removeFormat has no visible effect on a collapsed caret. In that case
-          // Clear formatting means the complete current compose row, while a
-          // temporary comment keeps the caret at the same logical position.
-          const marker = document.createComment('pse-clear-format-caret');
+          // A collapsed removeFormat does nothing. Give it one invisible character
+          // to operate on instead: the browser then splits the active inline
+          // formatting exactly at the caret, leaving existing text untouched while
+          // subsequent typing continues in an unformatted text node.
+          const marker = document.createTextNode('\u200b');
           range.insertNode(marker);
-          makeCurrentComposeLinePlain(marker);
+
+          const markerRange = document.createRange();
+          markerRange.setStart(marker, 0);
+          markerRange.setEnd(marker, 1);
+          selection.removeAllRanges();
+          selection.addRange(markerRange);
+          document.execCommand('removeFormat', false, null);
 
           const caret = document.createRange();
-          caret.setStartBefore(marker);
+          if (marker.isConnected) {
+            caret.setStart(marker, marker.data.length);
+          } else {
+            // Extremely defensive fallback for an engine that replaces the marker.
+            caret.selectNodeContents($('#composeBody'));
+            caret.collapse(false);
+          }
           caret.collapse(true);
-          marker.remove();
           selection.removeAllRanges();
           selection.addRange(caret);
           state.composeRange = caret.cloneRange();
@@ -20808,7 +20820,9 @@ if (!headers_sent()) {
         restoreComposeSelection();
         document.execCommand('insertParagraph', false, null);
         makeCurrentComposeLinePlain();
-        state.composePlainAfterClear = false;
+        // Stay in reset/plain mode until the user explicitly chooses formatting.
+        // This makes Enter continue the same unformatted typing state.
+        state.composePlainAfterClear = true;
         saveComposeSelection();
         markComposeDirty();
       });
