@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.17.25
+ * PSE Email (PSE), release v2.17.26
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.17.25';
+const PSE_VERSION = '2.17.26';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -13053,6 +13053,7 @@ if (!headers_sent()) {
         composeSignatureManaged: false,
         skipDraftOnClose: false,
         composeCloseConfirming: false,
+        browserCloseDraftStarted: false,
         composeSession: 0,
         composePlainAfterClear: false,
         composeRange: null,
@@ -17839,6 +17840,7 @@ if (!headers_sent()) {
 
       function markComposeDirty() {
         state.composeDirty = true;
+        state.browserCloseDraftStarted = false;
       }
 
       function composeColorStorageKey(kind) {
@@ -18326,6 +18328,7 @@ if (!headers_sent()) {
         state.composeSignatureManaged = false;
         state.skipDraftOnClose = false;
         state.composeCloseConfirming = false;
+        state.browserCloseDraftStarted = false;
         state.composePlainAfterClear = false;
         setComposeMaximized(false);
         $('#composePseId').value = '';
@@ -19473,6 +19476,64 @@ if (!headers_sent()) {
         }
       }
 
+      async function browserCloseComposePayload() {
+        // Closing the browser must preserve the compose even when ordinary draft saving is disabled.
+        // Pending recipient text is stored separately so an incomplete/invalid address does not prevent recovery.
+        commitPendingRecipientInputs();
+        const pendingRecipients = {};
+        ['to', 'cc', 'bcc'].forEach(field => {
+          pendingRecipients[field] = String(recipientInputForField(field)?.value || '');
+        });
+        const bodyHtml = $('#composeBody').innerHTML.replace(/\u200b/g, '');
+        const bodyText = $('#composeBody').innerText.replace(/\u200b/g, '');
+        return {
+          to: state.recipients.to,
+          cc: state.recipients.cc,
+          bcc: state.recipients.bcc,
+          subject: $('#composeSubject').value,
+          bodyHtml,
+          bodyText,
+          signatureHandled: state.composeSignatureManaged,
+          signaturePresent: Boolean($('#composeBody').querySelector('[data-pse-signature="1"]')),
+          attachments: await filesToPayload(),
+          pendingRecipients
+        };
+      }
+
+      function saveComposeBeforeBrowserClose() {
+        const modal = $('#composeModal');
+        if (
+          state.browserCloseDraftStarted ||
+          state.composeMode === 'bulk-forward' ||
+          !modal?.classList.contains('show') ||
+          !composeHasContent()
+        ) {
+          return;
+        }
+
+        state.browserCloseDraftStarted = true;
+        const draftId = $('#composePseId').value;
+        browserCloseComposePayload().then(message => {
+          const appearance = pickAppearanceSettings(initialSettings);
+          return fetch('?ajax=save_pse', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-PSE-CSRF': csrf
+            },
+            body: JSON.stringify({
+              id: draftId,
+              message,
+              _appearance: appearance
+            }),
+            keepalive: true
+          });
+        }).catch(error => {
+          // The page is going away, so there is no useful UI to show here.
+          console.warn('Unable to save compose during browser close.', error);
+        });
+      }
+
       function downloadBlob(blob, filename) {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -19493,6 +19554,13 @@ if (!headers_sent()) {
         state.recipients.cc = Array.isArray(message.cc) ? message.cc : [];
         state.recipients.bcc = Array.isArray(message.bcc) ? message.bcc : [];
         ['to', 'cc', 'bcc'].forEach(field => renderRecipientChips(field));
+        const pendingRecipients = message.pendingRecipients && typeof message.pendingRecipients === 'object'
+          ? message.pendingRecipients
+          : {};
+        ['to', 'cc', 'bcc'].forEach(field => {
+          const input = recipientInputForField(field);
+          if (input) input.value = String(pendingRecipients[field] || '');
+        });
         $('#composeSubject').value = message.subject || '';
         $('#composeBody').innerHTML = message.bodyHtml || escapeHtml(message.bodyText || '').replace(/\n/g, '<br>');
         state.composeSignatureManaged = Boolean(
@@ -21134,7 +21202,11 @@ if (!headers_sent()) {
       });
       if (navigator.onLine === false) pausePrefetch('network');
       if (!prefetchConnectionAllowsBackground()) pausePrefetch('network-policy');
+      window.addEventListener('beforeunload', () => {
+        saveComposeBeforeBrowserClose();
+      });
       window.addEventListener('pagehide', () => {
+        saveComposeBeforeBrowserClose();
         interruptPrefetchRequests();
         fetch('?ajax=handle_queue', {
           method: 'POST',
