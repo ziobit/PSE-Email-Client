@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.17.26
+ * PSE Email (PSE), release v2.17.30
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.17.26';
+const PSE_VERSION = '2.17.30';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -99,6 +99,7 @@ function pseDefaults(): array
     'panel_color' => '#ffffff',
     'items_per_page' => 50,
     'search_delay_seconds' => 2,
+    'mail_check_interval_seconds' => 60,
     'block_remote_images' => true,
     'always_load_remote_images' => false,
     'show_image_attachments_inline' => true,
@@ -230,7 +231,7 @@ function pseAccountSettingKeys(): array
     'email_preview_rows', 'show_attachment_pill', 'show_list_trash', 'show_list_size', 'show_calendar',
     'hide_useless_gmail_folders', 'timezone',
     'density', 'theme', 'primary_color', 'accent_color', 'background_color', 'panel_color',
-    'items_per_page', 'search_delay_seconds', 'block_remote_images',
+    'items_per_page', 'search_delay_seconds', 'mail_check_interval_seconds', 'block_remote_images',
     'always_load_remote_images', 'show_image_attachments_inline',
     'suggest_unknown_read_contacts', 'confirm_delete_messages', 'compose_save_drafts', 'mobile_single_pane', 'mobile_swipe_hint_seconds', 'app_title'
   ];
@@ -894,7 +895,8 @@ function pseMailCacheListFile(
     $sortOrder,
     $attachmentFilter,
     $startDate,
-    (string)($settings['items_per_page'] ?? 50)
+    (string)($settings['items_per_page'] ?? 50),
+    pseIsGmailAccount($settings) && $folder === 'DRAFT' ? 'gmail-native-drafts-v1' : ''
   ]);
   return pseMailCacheAccountDirectory($settings) . '/lists/' . hash('sha256', $identity) . '.json';
 }
@@ -1847,6 +1849,7 @@ function pseWriteMessageSource(
       'folder' => $folder,
       'uid' => $uid,
       'cacheLayer' => 'source',
+      'messageSchema' => 2,
       'freshFromServer' => true,
       'prefetched' => $prefetched
     ]
@@ -1925,6 +1928,12 @@ function pseCachedMessageDetails(
     ): array {
       $existingSource = pseMailCacheReadMessageSource($settings, $folder, $uid);
       $sourceEnvelope = $forceRefresh ? [] : $existingSource;
+      $legacySentSource = !empty($sourceEnvelope) &&
+        pseMailCacheFolderSpecial($settings, $folder) === 'sent' &&
+        (int)($sourceEnvelope['messageSchema'] ?? 0) < 2;
+      if ($legacySentSource) {
+        $sourceEnvelope = [];
+      }
       $needsHydration = !empty($sourceEnvelope) &&
         pseMessageSourceNeedsMimeBodyRepair($settings, (array)$sourceEnvelope['data']);
       if (!empty($sourceEnvelope) && !$needsHydration) {
@@ -4166,6 +4175,7 @@ function pseGmailMessageList(
     }
   }
 
+  $draftMessageMap = $folder === 'DRAFT' ? pseGmailDraftMessageMap($settings) : [];
   $messages = [];
   foreach ((array)($list['messages'] ?? []) as $item) {
     $id = (string)($item['id'] ?? '');
@@ -4200,6 +4210,9 @@ function pseGmailMessageList(
       'seen' => !in_array('UNREAD', $labels, true),
       'answered' => false
     ];
+    if (isset($draftMessageMap[$id])) {
+      $messageItem['draftId'] = (string)$draftMessageMap[$id];
+    }
     if ($showAttachmentPill) {
       $messageItem['attachmentCount'] = $cachedAttachmentCount !== null && $messageQuery['format'] !== 'full'
         ? $cachedAttachmentCount
@@ -4335,6 +4348,7 @@ function pseGmailMessageDetails(
     'from' => $from,
     'to' => pseAddressList((string)($headers['to'] ?? '')),
     'cc' => pseAddressList((string)($headers['cc'] ?? '')),
+    'bcc' => pseAddressList((string)($headers['bcc'] ?? '')),
     'replyTo' => pseAddressList((string)($headers['reply-to'] ?? '')),
     'date' => pseFormatDate($timestamp, $settings),
     'timestamp' => $timestamp,
@@ -5749,6 +5763,7 @@ function pseMessageDetails(
   $fromRaw = is_object($header) ? (string)($header->fromaddress ?? '') : (string)($o->from ?? '');
   $toRaw = is_object($header) ? (string)($header->toaddress ?? '') : (string)($o->to ?? '');
   $ccRaw = is_object($header) ? (string)($header->ccaddress ?? '') : '';
+  $bccRaw = is_object($header) ? (string)($header->bccaddress ?? '') : '';
   $messageId = is_object($header) ? trim((string)($header->message_id ?? '')) : '';
   $from = pseAddressList($fromRaw);
   $timestamp = isset($o->udate)
@@ -5761,6 +5776,7 @@ function pseMessageDetails(
     'from' => $from,
     'to' => pseAddressList($toRaw),
     'cc' => pseAddressList($ccRaw),
+    'bcc' => pseAddressList($bccRaw),
     'replyTo' => is_object($header) ? pseAddressList((string)($header->reply_toaddress ?? '')) : [],
     'date' => pseFormatDate($timestamp, $settings),
     'timestamp' => $timestamp,
@@ -6598,12 +6614,30 @@ function pseAppendRawHtmlSignature(string $html, string $signature): string
   return $html . $addition;
 }
 
-function pseBuildMail(array $settings, array $data): array
+function pseRawWithBccHeader(string $rawMessage, array $bcc): string
+{
+  $bcc = pseNormalizeRecipients($bcc);
+  if (empty($bcc)) {
+    return $rawMessage;
+  }
+  $header = 'Bcc: ' . implode(', ', array_map('pseFormatRecipient', $bcc)) . "\r\n";
+  $position = strpos($rawMessage, "\r\n\r\n");
+  return $position === false
+    ? ($rawMessage . "\r\n" . $header)
+    : (substr($rawMessage, 0, $position + 2) . $header . substr($rawMessage, $position + 2));
+}
+
+function pseBuildMail(
+  array $settings,
+  array $data,
+  bool $requireRecipient = true,
+  bool $preserveEmptySubject = false
+): array
 {
   $to = pseNormalizeRecipients($data['to'] ?? []);
   $cc = pseNormalizeRecipients($data['cc'] ?? []);
   $bcc = pseNormalizeRecipients($data['bcc'] ?? []);
-  if (empty($to) && empty($cc) && empty($bcc)) {
+  if ($requireRecipient && empty($to) && empty($cc) && empty($bcc)) {
     throw new RuntimeException('Add at least one recipient.');
   }
   $subject = trim((string)($data['subject'] ?? ''));
@@ -6696,7 +6730,7 @@ function pseBuildMail(array $settings, array $data): array
     'Message-ID: ' . $messageId,
     'From: ' . ($fromName !== '' ? pseEncodeHeader($fromName) . ' <' . $fromEmail . '>' : $fromEmail),
     'To: ' . implode(', ', array_map('pseFormatRecipient', $to)),
-    'Subject: ' . pseEncodeHeader($subject !== '' ? $subject : '(No subject)'),
+    'Subject: ' . pseEncodeHeader($preserveEmptySubject ? $subject : ($subject !== '' ? $subject : '(No subject)')),
     'MIME-Version: 1.0',
     'X-Mailer: ' . PSE_NAME . '/' . PSE_VERSION
   ];
@@ -6769,6 +6803,7 @@ function pseBuildMail(array $settings, array $data): array
   return [
     'from' => $fromEmail,
     'recipients' => array_values(array_unique(array_column($all, 'email'))),
+    'bcc' => $bcc,
     'raw' => $raw,
     'messageId' => $messageId,
     'signatureApplied' => $signatureApplied
@@ -6797,8 +6832,67 @@ function pseWaitForImapSentMessage($imap, string $messageId, int $attempts = 6, 
   return false;
 }
 
-function pseEnsureSentCopy(array $settings, string $rawMessage, string $messageId): string
+function pseImapSentMessageUids($imap, string $messageId): array
 {
+  $escapedId = addcslashes($messageId, "\\\"");
+  $uids = @imap_search($imap, 'HEADER Message-ID "' . $escapedId . '"', SE_UID);
+  if (!is_array($uids)) {
+    return [];
+  }
+  return array_values(array_unique(array_map('intval', array_filter($uids, function ($uid): bool {
+    return (int)$uid > 0;
+  }))));
+}
+
+function pseWaitForImapSentMessageUids($imap, string $messageId, int $attempts = 6, int $delayUs = 500000): array
+{
+  $attempts = max(1, $attempts);
+  for ($attempt = 0; $attempt < $attempts; $attempt++) {
+    if ($attempt > 0) {
+      usleep(max(0, $delayUs));
+      @imap_ping($imap);
+    }
+    $uids = pseImapSentMessageUids($imap, $messageId);
+    if (!empty($uids)) {
+      return $uids;
+    }
+  }
+  return [];
+}
+
+function pseWaitForImapNewSentMessageUids(
+  $imap,
+  string $messageId,
+  array $existingUids,
+  int $attempts = 8,
+  int $delayUs = 350000
+): array {
+  $existing = array_fill_keys(array_map('intval', $existingUids), true);
+  $attempts = max(1, $attempts);
+  for ($attempt = 0; $attempt < $attempts; $attempt++) {
+    if ($attempt > 0) {
+      usleep(max(0, $delayUs));
+      @imap_ping($imap);
+    }
+    $new = array_values(array_filter(
+      pseImapSentMessageUids($imap, $messageId),
+      function (int $uid) use ($existing): bool {
+        return !isset($existing[$uid]);
+      }
+    ));
+    if (!empty($new)) {
+      return $new;
+    }
+  }
+  return [];
+}
+
+function pseEnsureSentCopy(
+  array $settings,
+  string $rawMessage,
+  string $messageId,
+  bool $replaceExisting = false
+): string {
   if (empty($settings['save_sent_via_imap'])) {
     return '';
   }
@@ -6811,24 +6905,31 @@ function pseEnsureSentCopy(array $settings, string $rawMessage, string $messageI
     }
 
     $imap = pseOpenImap($settings, $sentFolder, false);
-
-    // Gmail and some other SMTP servers create their own Sent copy. Wait long enough
-    // for that copy to become visible before falling back to IMAP APPEND.
-    if (pseWaitForImapSentMessage($imap, $messageId, 8, 500000)) {
+    $existingUids = pseWaitForImapSentMessageUids($imap, $messageId, 8, 500000);
+    if (!empty($existingUids) && !$replaceExisting) {
       return '';
     }
 
     $mailbox = pseImapBase($settings) . $sentFolder;
     if (!@imap_append($imap, $mailbox, $rawMessage . "\r\n", '\\Seen')) {
       $error = imap_last_error();
-      if (pseWaitForImapSentMessage($imap, $messageId, 4, 500000)) {
+      if (!empty(pseWaitForImapSentMessageUids($imap, $messageId, 4, 500000))) {
         return '';
       }
       return 'Message sent, but its Sent copy could not be stored: ' . ($error ?: 'unknown IMAP error');
     }
 
-    // Verify the copy is really visible in Sent instead of trusting APPEND alone.
-    if (!pseWaitForImapSentMessage($imap, $messageId, 6, 350000)) {
+    @imap_ping($imap);
+    if ($replaceExisting && !empty($existingUids)) {
+      $newUids = pseWaitForImapNewSentMessageUids($imap, $messageId, $existingUids, 8, 350000);
+      if (empty($newUids)) {
+        return 'Message sent, but the Bcc-aware Sent copy could not be verified after IMAP APPEND.';
+      }
+      foreach ($existingUids as $oldUid) {
+        @imap_delete($imap, (string)$oldUid, FT_UID);
+      }
+      @imap_expunge($imap);
+    } elseif (empty(pseWaitForImapSentMessageUids($imap, $messageId, 6, 350000))) {
       return 'Message sent, but its Sent copy could not be verified after IMAP APPEND.';
     }
     return '';
@@ -6841,19 +6942,267 @@ function pseEnsureSentCopy(array $settings, string $rawMessage, string $messageI
   }
 }
 
+function pseValidGmailDraftId(string $draftId): bool
+{
+  return (bool)preg_match('/^[a-zA-Z0-9_-]+$/', $draftId);
+}
+
+function pseGmailDraftMessageMap(array $settings): array
+{
+  if (!pseIsGmailAccount($settings)) {
+    return [];
+  }
+  $map = [];
+  $token = '';
+  do {
+    $query = ['maxResults' => 500];
+    if ($token !== '') {
+      $query['pageToken'] = $token;
+    }
+    $response = pseGoogleApi($settings, 'GET', 'drafts', $query);
+    foreach ((array)($response['drafts'] ?? []) as $draft) {
+      if (!is_array($draft)) {
+        continue;
+      }
+      $draftId = trim((string)($draft['id'] ?? ''));
+      $messageId = trim((string)($draft['message']['id'] ?? ''));
+      if ($draftId !== '' && $messageId !== '') {
+        $map[$messageId] = $draftId;
+      }
+    }
+    $token = (string)($response['nextPageToken'] ?? '');
+  } while ($token !== '');
+  return $map;
+}
+
+function pseRawWithDraftMetadata(string $rawMessage, array $data): string
+{
+  $headers = ['X-PSE-Native-Draft: 1'];
+  $pending = is_array($data['pendingRecipients'] ?? null) ? $data['pendingRecipients'] : [];
+  foreach (['to' => 'To', 'cc' => 'Cc', 'bcc' => 'Bcc'] as $key => $headerName) {
+    $value = trim((string)($pending[$key] ?? ''));
+    if ($value !== '') {
+      $headers[] = 'X-PSE-Pending-' . $headerName . ': ' . pseBase64UrlEncode($value);
+    }
+  }
+  $block = implode("\r\n", $headers) . "\r\n";
+  $position = strpos($rawMessage, "\r\n\r\n");
+  return $position === false
+    ? ($rawMessage . "\r\n" . $block)
+    : (substr($rawMessage, 0, $position + 2) . $block . substr($rawMessage, $position + 2));
+}
+
+function pseGmailDraftPendingRecipients(array $headers): array
+{
+  $pending = [];
+  foreach (['to', 'cc', 'bcc'] as $field) {
+    $encoded = trim((string)($headers['x-pse-pending-' . $field] ?? ''));
+    $pending[$field] = $encoded !== '' ? pseBase64UrlDecode($encoded) : '';
+  }
+  return $pending;
+}
+
+function pseInvalidateGmailDraftCache(array $settings): void
+{
+  pseMailCacheInvalidateFolderLists($settings, 'DRAFT');
+  pseMailCacheClearFolderDetails($settings, 'DRAFT');
+  pseMailCacheClearAttachmentCounts($settings, 'DRAFT');
+  pseMailCacheInvalidateFolderCalendars($settings, 'DRAFT');
+  @unlink(pseMailCacheFoldersFile($settings));
+}
+
+function pseGmailSaveDraft(array $settings, array $data): array
+{
+  if (!pseIsGmailAccount($settings)) {
+    throw new RuntimeException('Native Gmail drafts are available only for Gmail accounts.');
+  }
+  $draftId = trim((string)($data['draftId'] ?? ''));
+  if ($draftId !== '' && !pseValidGmailDraftId($draftId)) {
+    throw new RuntimeException('Invalid Gmail draft identifier.');
+  }
+
+  $mail = pseBuildMail($settings, $data, false, true);
+  $raw = pseRawWithBccHeader($mail['raw'], (array)($mail['bcc'] ?? []));
+  $raw = pseRawWithDraftMetadata($raw, $data);
+  $resource = ['message' => ['raw' => pseBase64UrlEncode($raw)]];
+
+  $saved = $draftId === ''
+    ? pseGoogleApi($settings, 'POST', 'drafts', [], $resource)
+    : pseGoogleApi($settings, 'PUT', 'drafts/' . rawurlencode($draftId), [], $resource);
+
+  $savedId = trim((string)($saved['id'] ?? $draftId));
+  if ($savedId === '') {
+    throw new RuntimeException('Gmail saved the draft but did not return its draft identifier.');
+  }
+  pseInvalidateGmailDraftCache($settings);
+  return [
+    'id' => $savedId,
+    'messageId' => (string)($saved['message']['id'] ?? ''),
+    'threadId' => (string)($saved['message']['threadId'] ?? ''),
+    'updatedAt' => gmdate('c')
+  ];
+}
+
+function pseGmailDeleteDraft(array $settings, string $draftId): void
+{
+  $draftId = trim($draftId);
+  if (!pseIsGmailAccount($settings) || !pseValidGmailDraftId($draftId)) {
+    throw new RuntimeException('Invalid Gmail draft identifier.');
+  }
+  pseGoogleApi($settings, 'DELETE', 'drafts/' . rawurlencode($draftId));
+  pseInvalidateGmailDraftCache($settings);
+}
+
+function pseGmailDraftComposeData(array $settings, string $draftId): array
+{
+  $draftId = trim($draftId);
+  if (!pseIsGmailAccount($settings) || !pseValidGmailDraftId($draftId)) {
+    throw new RuntimeException('Invalid Gmail draft identifier.');
+  }
+  $draft = pseGoogleApi(
+    $settings,
+    'GET',
+    'drafts/' . rawurlencode($draftId),
+    ['format' => 'full']
+  );
+  $message = (array)($draft['message'] ?? []);
+  $messageId = trim((string)($message['id'] ?? ''));
+  $payload = (array)($message['payload'] ?? []);
+  if ($messageId === '' || empty($payload)) {
+    throw new RuntimeException('Gmail returned an incomplete draft.');
+  }
+
+  $headers = pseGmailHeaders($payload);
+  $content = ['plain' => '', 'html' => '', 'attachments' => [], 'inline' => []];
+  pseGmailCollectParts($settings, $messageId, $payload, $content);
+  $html = (string)$content['html'];
+  $referencedCids = pseReferencedCidSet($html);
+  $attachments = [];
+  $totalBytes = 0;
+
+  foreach ((array)$content['attachments'] as $attachment) {
+    if (!is_array($attachment)) {
+      continue;
+    }
+    $partNo = trim((string)($attachment['part'] ?? ''));
+    if ($partNo === '') {
+      continue;
+    }
+    $part = pseGmailFindPart($payload, $partNo);
+    if ($part === null) {
+      continue;
+    }
+    $binary = pseGmailPartContent($settings, $messageId, $part);
+    $totalBytes += strlen($binary);
+    if ($totalBytes > PSE_MAX_ATTACHMENT_BYTES) {
+      throw new RuntimeException('This Gmail draft exceeds the 15 MB PSE attachment limit.');
+    }
+    $mime = strtolower((string)($attachment['mime'] ?? 'application/octet-stream'));
+    $cid = trim((string)($attachment['cid'] ?? ''), '<>');
+    $cidKey = strtolower(rawurldecode($cid));
+    $referencedInlineImage = !empty($attachment['inline']) &&
+      $cidKey !== '' &&
+      isset($referencedCids[$cidKey]) &&
+      strpos($mime, 'image/') === 0;
+
+    if ($referencedInlineImage) {
+      $html = pseReplaceCidUrls($html, [
+        $cid => 'data:' . $mime . ';base64,' . base64_encode($binary)
+      ]);
+      continue;
+    }
+
+    $attachments[] = [
+      'name' => basename((string)($attachment['filename'] ?? ('attachment-' . str_replace('.', '-', $partNo)))),
+      'type' => $mime !== '' ? $mime : 'application/octet-stream',
+      'data' => base64_encode($binary),
+      'size' => strlen($binary)
+    ];
+  }
+
+  $bodyText = (string)$content['plain'];
+  if ($html === '' && $bodyText !== '') {
+    $html = nl2br(htmlspecialchars($bodyText, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+  }
+  if ($bodyText === '') {
+    $bodyText = trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+  }
+
+  return [
+    'draftId' => $draftId,
+    'messageId' => $messageId,
+    'threadId' => (string)($message['threadId'] ?? ''),
+    'message' => [
+      'to' => pseAddressList((string)($headers['to'] ?? '')),
+      'cc' => pseAddressList((string)($headers['cc'] ?? '')),
+      'bcc' => pseAddressList((string)($headers['bcc'] ?? '')),
+      'subject' => pseMime((string)($headers['subject'] ?? '')),
+      'bodyHtml' => $html,
+      'bodyText' => $bodyText,
+      'signatureHandled' => true,
+      'signaturePresent' => strpos($html, 'data-pse-signature=') !== false,
+      'attachments' => $attachments,
+      'pendingRecipients' => pseGmailDraftPendingRecipients($headers)
+    ]
+  ];
+}
+
+function pseGmailSendDraft(array $settings, string $draftId, array $data): array
+{
+  $draftId = trim($draftId);
+  if (!pseIsGmailAccount($settings) || !pseValidGmailDraftId($draftId)) {
+    throw new RuntimeException('Invalid Gmail draft identifier.');
+  }
+  $mail = pseBuildMail($settings, $data);
+  $raw = pseRawWithBccHeader($mail['raw'], (array)($mail['bcc'] ?? []));
+  $sentMessage = pseGoogleApi(
+    $settings,
+    'POST',
+    'drafts/send',
+    [],
+    [
+      'id' => $draftId,
+      'message' => ['raw' => pseBase64UrlEncode($raw)]
+    ]
+  );
+  $gmailMessageId = (string)($sentMessage['id'] ?? '');
+  $sentVerified = in_array(
+    'SENT',
+    array_map('strval', (array)($sentMessage['labelIds'] ?? [])),
+    true
+  );
+  if (!$sentVerified && $gmailMessageId !== '') {
+    try {
+      $verified = pseGoogleApi(
+        $settings,
+        'GET',
+        'messages/' . rawurlencode($gmailMessageId),
+        ['format' => 'minimal']
+      );
+      $sentVerified = in_array(
+        'SENT',
+        array_map('strval', (array)($verified['labelIds'] ?? [])),
+        true
+      );
+    } catch (Throwable $ignore) {
+      // Sending succeeded; only the Sent-label verification failed.
+    }
+  }
+  pseInvalidateGmailDraftCache($settings);
+  return [
+    'messageId' => $mail['messageId'],
+    'sentCopyWarning' => $sentVerified
+      ? ''
+      : 'Message sent, but Gmail did not confirm that it was stored in Sent.',
+    'signatureApplied' => $mail['signatureApplied']
+  ];
+}
+
 function pseSendMessage(array $settings, array $data): array
 {
   $mail = pseBuildMail($settings, $data);
   if (pseIsGmailAccount($settings)) {
-    $raw = $mail['raw'];
-    $bcc = pseNormalizeRecipients($data['bcc'] ?? []);
-    if (!empty($bcc)) {
-      $bccHeader = 'Bcc: ' . implode(', ', array_map('pseFormatRecipient', $bcc)) . "\r\n";
-      $position = strpos($raw, "\r\n\r\n");
-      $raw = $position === false
-        ? ($raw . "\r\n" . $bccHeader)
-        : (substr($raw, 0, $position + 2) . $bccHeader . substr($raw, $position + 2));
-    }
+    $raw = pseRawWithBccHeader($mail['raw'], (array)($mail['bcc'] ?? []));
     $sentMessage = pseGoogleApi(
       $settings,
       'POST',
@@ -6944,7 +7293,12 @@ function pseSendMessage(array $settings, array $data): array
   }
   return [
     'messageId' => $mail['messageId'],
-    'sentCopyWarning' => pseEnsureSentCopy($settings, $mail['raw'], $mail['messageId']),
+    'sentCopyWarning' => pseEnsureSentCopy(
+      $settings,
+      pseRawWithBccHeader($mail['raw'], (array)($mail['bcc'] ?? [])),
+      $mail['messageId'],
+      !empty($mail['bcc'])
+    ),
     'signatureApplied' => $mail['signatureApplied']
   ];
 }
@@ -7192,8 +7546,6 @@ function pseBulkForwardMessages(
     throw new RuntimeException('Forward at most 200 selected emails at once.');
   }
 
-  // Validate the recipient set once before sending the first message, so an
-  // obvious recipient error cannot result in a partially forwarded selection.
   $to = pseNormalizeRecipients($data['to'] ?? []);
   $cc = pseNormalizeRecipients($data['cc'] ?? []);
   $bcc = pseNormalizeRecipients($data['bcc'] ?? []);
@@ -7201,36 +7553,54 @@ function pseBulkForwardMessages(
     throw new RuntimeException('Add at least one recipient.');
   }
 
-  $sent = [];
-  $failures = [];
-  $warnings = [];
-
-  foreach ($uids as $uid) {
-    try {
-      $mailData = pseForwardMailData($settings, $folder, $uid, $data);
-      $result = pseSendMessage($settings, $mailData);
-      $sent[] = [
-        'uid' => $uid,
-        'messageId' => (string)($result['messageId'] ?? '')
-      ];
-      $warning = trim((string)($result['sentCopyWarning'] ?? ''));
-      if ($warning !== '') {
-        $warnings[] = ['uid' => $uid, 'warning' => $warning];
+  // Prepare every source before sending anything. A failed source or attachment
+  // must never turn a combined forward into an incomplete or partially sent batch.
+  $mailData = [
+    'to' => $to,
+    'cc' => $cc,
+    'bcc' => $bcc,
+    'subject' => 'Fwd: ' . count($uids) . ' emails',
+    'bodyHtml' => '<div><br></div>',
+    'bodyText' => '',
+    'signatureHandled' => false,
+    'signaturePresent' => false,
+    'attachments' => []
+  ];
+  $attachmentBytes = 0;
+  foreach ($uids as $index => $uid) {
+    $forward = pseForwardMailData($settings, $folder, $uid, $data);
+    if (count($uids) === 1) {
+      $mailData = $forward;
+      break;
+    }
+    $heading = 'Email ' . ($index + 1) . ' — ' . (string)$forward['subject'];
+    $mailData['bodyHtml'] .= '<div data-pse-quote="1" style="margin:20px 0">' .
+      '<p><b>' . htmlspecialchars($heading, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</b></p>' .
+      (string)$forward['bodyHtml'] . '</div>';
+    $mailData['bodyText'] .= ($index > 0 ? "\n\n" : '') . $heading . "\n\n" .
+      (string)$forward['bodyText'];
+    foreach ((array)$forward['attachments'] as $attachment) {
+      $encoded = (string)($attachment['data'] ?? '');
+      $attachmentBytes += (int)(strlen($encoded) * .75);
+      if ($attachmentBytes > PSE_MAX_ATTACHMENT_BYTES) {
+        throw new RuntimeException('Combined forwarded attachments exceed the 15 MB application limit.');
       }
-    } catch (Throwable $error) {
-      $failures[] = [
-        'uid' => $uid,
-        'error' => $error->getMessage()
-      ];
+      $mailData['attachments'][] = $attachment;
     }
   }
 
+  // pseSendMessage creates a fresh Message-ID and uses the normal send pathway.
+  $result = pseSendMessage($settings, $mailData);
+  $warning = trim((string)($result['sentCopyWarning'] ?? ''));
   return [
-    'sentCount' => count($sent),
-    'failedCount' => count($failures),
-    'sent' => $sent,
-    'failures' => $failures,
-    'warnings' => $warnings
+    'sentCount' => 1,
+    'failedCount' => 0,
+    'sent' => [[
+      'uids' => $uids,
+      'messageId' => (string)($result['messageId'] ?? '')
+    ]],
+    'failures' => [],
+    'warnings' => $warning !== '' ? [['uids' => $uids, 'warning' => $warning]] : []
   ];
 }
 
@@ -8291,7 +8661,7 @@ function psePublicSettings(array $settings): array
     'google_oauth_email', 'date_format', 'time_format',
     'smart_datetime', 'group_messages_by_day', 'email_preview_rows', 'show_attachment_pill', 'show_list_trash', 'show_list_size', 'show_calendar',
     'hide_useless_gmail_folders', 'timezone', 'density', 'theme', 'primary_color', 'accent_color', 'background_color',
-    'panel_color', 'items_per_page', 'search_delay_seconds', 'block_remote_images',
+    'panel_color', 'items_per_page', 'search_delay_seconds', 'mail_check_interval_seconds', 'block_remote_images',
     'always_load_remote_images', 'show_image_attachments_inline',
     'suggest_unknown_read_contacts', 'confirm_delete_messages', 'compose_save_drafts', 'mobile_single_pane', 'mobile_swipe_hint_seconds', 'auto_update', 'app_title',
     'account_id', 'account_name'
@@ -8375,6 +8745,10 @@ function pseSaveSettings(array $settings, array $input): array
   $settings['search_delay_seconds'] = max(
     0,
     min(60, round((float)($input['search_delay_seconds'] ?? $settings['search_delay_seconds']), 2))
+  );
+  $settings['mail_check_interval_seconds'] = max(
+    15,
+    min(3600, (int)($input['mail_check_interval_seconds'] ?? $settings['mail_check_interval_seconds']))
   );
   $settings['imap_validate_cert'] = !empty($input['imap_validate_cert']);
   $settings['smtp_validate_cert'] = !empty($input['smtp_validate_cert']);
@@ -8889,7 +9263,7 @@ function pseHandleAjax(string $action, array $settings): void
 
   $data = pseBody();
   if (in_array($action, [
-    'messages', 'calendar_month', 'message',
+    'messages', 'calendar_month', 'message', 'forward_prepare',
     'export_pdf', 'export_eml', 'export_txt', 'export_raw_txt', 'export_word'
   ], true)) {
     $settings = pseApplyClientAppearanceSettings($settings, $data['_appearance'] ?? null);
@@ -9230,7 +9604,10 @@ function pseHandleAjax(string $action, array $settings): void
       break;
 
     case 'send_message':
-      $sent = pseSendMessage($settings, $data);
+      $gmailDraftId = trim((string)($data['gmailDraftId'] ?? ''));
+      $sent = pseIsGmailAccount($settings) && $gmailDraftId !== ''
+        ? pseGmailSendDraft($settings, $gmailDraftId, $data)
+        : pseSendMessage($settings, $data);
       pseCleanupMessageAttachmentUploads($settings, $data);
       pseMailCacheAdjustSpecialFolder($settings, 'sent', 1, 0);
       pseJson([
@@ -9239,6 +9616,34 @@ function pseHandleAjax(string $action, array $settings): void
         'sentCopyWarning' => $sent['sentCopyWarning'],
         'signatureApplied' => $sent['signatureApplied']
       ]);
+      break;
+
+    case 'gmail_draft_save':
+      pseJson(['ok' => true, 'saved' => pseGmailSaveDraft($settings, [
+        'draftId' => (string)($data['draftId'] ?? ''),
+        'to' => $data['message']['to'] ?? [],
+        'cc' => $data['message']['cc'] ?? [],
+        'bcc' => $data['message']['bcc'] ?? [],
+        'subject' => (string)($data['message']['subject'] ?? ''),
+        'bodyHtml' => (string)($data['message']['bodyHtml'] ?? ''),
+        'bodyText' => (string)($data['message']['bodyText'] ?? ''),
+        'signatureHandled' => !empty($data['message']['signatureHandled']),
+        'signaturePresent' => !empty($data['message']['signaturePresent']),
+        'attachments' => is_array($data['message']['attachments'] ?? null) ? $data['message']['attachments'] : [],
+        'pendingRecipients' => is_array($data['message']['pendingRecipients'] ?? null) ? $data['message']['pendingRecipients'] : []
+      ])]);
+      break;
+
+    case 'gmail_draft_load':
+      pseJson([
+        'ok' => true,
+        'draft' => pseGmailDraftComposeData($settings, (string)($data['draftId'] ?? ''))
+      ]);
+      break;
+
+    case 'gmail_draft_delete':
+      pseGmailDeleteDraft($settings, (string)($data['draftId'] ?? ''));
+      pseJson(['ok' => true]);
       break;
 
     case 'forward_prepare':
@@ -9252,6 +9657,7 @@ function pseHandleAjax(string $action, array $settings): void
       pseJson([
         'ok' => true,
         'mail' => $mailData,
+        'sourceSubject' => (string)($message['subject'] ?? '(No subject)'),
         'attachments' => pseForwardAttachmentManifestFromMessage($settings, $folder, $uid, $message)
       ]);
       break;
@@ -12282,6 +12688,7 @@ if (!headers_sent()) {
         </div>
         <div class="modal-body">
           <input type="hidden" id="composePseId">
+          <input type="hidden" id="composeGmailDraftId">
           <div class="row g-2 align-items-start mb-2">
             <div class="col-auto">
               <button class="btn btn-sm btn-outline-secondary recipient-picker mt-1" data-field="to" type="button">To:</button>
@@ -12770,6 +13177,11 @@ if (!headers_sent()) {
                   <input class="form-control setting" id="search_delay_seconds" type="number" min="0" max="60" step="0.1">
                   <div class="form-text">Search starts after this much time has passed since the last typed character.</div>
                 </div>
+                <div class="col-md-4">
+                  <label class="form-label" for="mail_check_interval_seconds">Mailbox check interval (seconds)</label>
+                  <input class="form-control setting" id="mail_check_interval_seconds" type="number" min="15" max="3600" step="15">
+                  <div class="form-text">Default 60 seconds. Inbox is always checked at this interval; any folder clicked after this age is refreshed from the server.</div>
+                </div>
                 <div class="col-12">
                   <div class="pse-pwa-settings-card p-3" id="pwaSettingsCard">
                     <div class="d-flex align-items-center gap-3">
@@ -12874,7 +13286,7 @@ if (!headers_sent()) {
                 <div class="col-12 form-check ms-2">
                   <input class="form-check-input setting" id="compose_save_drafts" type="checkbox">
                   <label class="form-check-label" for="compose_save_drafts">Enable Save draft in Compose</label>
-                  <div class="form-text">Disabled by default. When enabled, Compose shows the Save draft button and automatically saves a changed message when the compose window is closed.</div>
+                  <div class="form-text">Disabled by default. Gmail accounts save directly in the native Gmail Drafts folder; regular IMAP accounts keep using PSE saved drafts. When enabled, changed messages are also saved automatically when Compose closes.</div>
                 </div>
               </div>
             </div>
@@ -13045,9 +13457,7 @@ if (!headers_sent()) {
         recipients: {to: [], cc: [], bcc: []},
         recipientActiveField: 'to',
         recipientDrag: null,
-        composeMode: 'normal',
-        bulkForwardUids: [],
-        bulkForwardFolder: '',
+        forwardPreparing: false,
         composeFiles: [],
         composeDirty: false,
         composeSignatureManaged: false,
@@ -13068,6 +13478,7 @@ if (!headers_sent()) {
         googleReconnectPromptDismissed: false,
         folderStatusPolling: false,
         lastFolderStatusCheck: 0,
+        folderSyncedAt: new Map(),
         staleFolders: new Set(),
         newMailFolders: new Set(),
         messageLoads: 0,
@@ -14195,6 +14606,7 @@ if (!headers_sent()) {
         state.calendarCache.clear();
         state.staleFolders.clear();
         state.newMailFolders.clear();
+        state.folderSyncedAt.clear();
         state.selectedUid = null;
         state.currentMessage = null;
         state.mobilePane = 'folders';
@@ -14309,12 +14721,24 @@ if (!headers_sent()) {
         }
       }
 
+      function mailboxCheckIntervalMs() {
+        const seconds = Math.max(15, Math.min(3600, Number(initialSettings.mail_check_interval_seconds || 60)));
+        return seconds * 1000;
+      }
+
+      function folderCacheTooOld(folderId) {
+        const syncedAt = Number(state.folderSyncedAt.get(String(folderId)) || 0);
+        return syncedAt <= 0 || Date.now() - syncedAt >= mailboxCheckIntervalMs();
+      }
+
       async function selectFolder(folder) {
         clearTimeout(searchTimer);
         searchTimer = null;
         resumePrefetch('search-typing');
         const folderId = String(folder.id);
         const synchronizeForNewMail = state.newMailFolders.has(folderId);
+        const synchronizeForAge = folderCacheTooOld(folderId);
+        const synchronizeFolder = synchronizeForNewMail || synchronizeForAge;
         state.folder = folder.id;
         state.folderName = folder.name;
         state.page = 1;
@@ -14333,9 +14757,13 @@ if (!headers_sent()) {
         state.lastSyncDisplay = null;
         const syncStatus = $('#lastSyncStatus');
         if (syncStatus) {
-          if (synchronizeForNewMail) {
-            syncStatus.textContent = `${folder.name} has new mail — synchronizing…`;
-            syncStatus.title = 'New mail was detected, so this folder is being synchronized before it is shown.';
+          if (synchronizeFolder) {
+            syncStatus.textContent = synchronizeForNewMail
+              ? `${folder.name} has new mail — synchronizing…`
+              : `${folder.name} cache is old — synchronizing…`;
+            syncStatus.title = synchronizeForNewMail
+              ? 'New mail was detected, so this folder is being synchronized before it is shown.'
+              : 'This folder cache is older than the configured mailbox check interval, so it is being refreshed from the server.';
           } else {
             syncStatus.textContent = state.staleFolders.has(folderId)
               ? `${folder.name} has server changes — press Refresh to synchronize.`
@@ -14350,9 +14778,9 @@ if (!headers_sent()) {
         await loadMessages(
           1,
           true,
-          synchronizeForNewMail,
-          synchronizeForNewMail ? `Synchronizing ${folder.name}…` : `Opening ${folder.name} from cache…`,
-          !synchronizeForNewMail
+          synchronizeFolder,
+          synchronizeFolder ? `Synchronizing ${folder.name}…` : `Opening ${folder.name} from cache…`,
+          !synchronizeFolder
         );
       }
 
@@ -14431,6 +14859,9 @@ if (!headers_sent()) {
           }, {spinner: false});
 
           const data = result.data;
+          if (Number(result.cache?.savedAt || 0) > 0) {
+            state.folderSyncedAt.set(String(context.folder), Number(result.cache.savedAt) * 1000);
+          }
           cacheMessagePage(data, context);
           state.staleFolders.delete(String(context.folder));
           if (visibleContext && isVisible) {
@@ -15054,6 +15485,9 @@ if (!headers_sent()) {
                 return;
               }
               data = result.data;
+              if (Number(result.cache?.savedAt || 0) > 0) {
+                state.folderSyncedAt.set(String(requestedFolder), Number(result.cache.savedAt) * 1000);
+              }
               updateLastSyncStatus(result.cache, requestedFolderName || 'Mailbox');
               cacheMessagePage(data, {
                 folder: requestedFolder,
@@ -15369,6 +15803,10 @@ if (!headers_sent()) {
             }
             if (state.multiSelect) {
               setBulkSelected(message.uid, !state.selectedUids.has(message.uid));
+              return;
+            }
+            if (initialSettings.account_type === 'gmail' && message.draftId) {
+              openGmailDraft(message.draftId, message.uid);
               return;
             }
             openMessage(message.uid);
@@ -16524,6 +16962,7 @@ if (!headers_sent()) {
                 <div><b>From:</b> ${escapeHtml(addressText(message.from))}</div>
                 <div class="pse-address-line text-truncate" title="${escapeHtml(addressText(message.to))}"><b>To:</b> ${escapeHtml(addressText(message.to))}</div>
                 ${message.cc?.length ? `<div class="pse-address-line text-truncate"><b>Cc:</b> ${escapeHtml(addressText(message.cc))}</div>` : ''}
+                ${message.bcc?.length ? `<div class="pse-address-line text-truncate"><b>Bcc:</b> ${escapeHtml(addressText(message.bcc))}</div>` : ''}
               </div>
               <div class="text-secondary small text-nowrap">${escapeHtml(message.date)}</div>
             </div>
@@ -18319,9 +18758,6 @@ if (!headers_sent()) {
         state.recipients = {to: [], cc: [], bcc: []};
         state.recipientActiveField = 'to';
         state.recipientDrag = null;
-        state.composeMode = 'normal';
-        state.bulkForwardUids = [];
-        state.bulkForwardFolder = '';
         state.composeFiles = [];
         state.composeRange = null;
         state.composeDirty = false;
@@ -18332,6 +18768,7 @@ if (!headers_sent()) {
         state.composePlainAfterClear = false;
         setComposeMaximized(false);
         $('#composePseId').value = '';
+        $('#composeGmailDraftId').value = '';
         $('#composeSubject').value = '';
         $('#composeBody').innerHTML = '';
         restoreRememberedComposeColorPickers();
@@ -18398,13 +18835,26 @@ if (!headers_sent()) {
         state.composeRange = range.cloneRange();
       }
 
+      function nativeGmailDraftActive() {
+        return initialSettings.account_type === 'gmail' && Boolean($('#composeGmailDraftId').value);
+      }
+
+      function composeDraftSavingEnabled() {
+        return Boolean(initialSettings.compose_save_drafts || nativeGmailDraftActive());
+      }
+
       function updateComposeDraftUi() {
-        const bulkForward = state.composeMode === 'bulk-forward';
-        const enabled = Boolean(initialSettings.compose_save_drafts) && !bulkForward;
+        const enabled = composeDraftSavingEnabled();
+        const gmail = initialSettings.account_type === 'gmail';
         $('#savePse').classList.toggle('d-none', !enabled);
-        $('#deleteComposeForever').classList.toggle('d-none', bulkForward);
-        $('#composeCloseButton').title = initialSettings.compose_save_drafts
-          ? (bulkForward ? 'Close' : 'Close and save draft')
+        $('#savePse').title = gmail ? 'Save in Gmail Drafts' : 'Save as a PSE draft';
+        $('#savePse').innerHTML = gmail
+          ? '<i class="fa-solid fa-floppy-disk me-1"></i>Save to Gmail Drafts'
+          : '<i class="fa-solid fa-floppy-disk me-1"></i>Save draft';
+        $('#deleteComposeForever').classList.remove('d-none');
+        $('#savedButton').classList.toggle('d-none', gmail);
+        $('#composeCloseButton').title = enabled
+          ? (gmail ? 'Close and save to Gmail Drafts' : 'Close and save draft')
           : 'Close (email will be lost)';
       }
 
@@ -18448,7 +18898,7 @@ if (!headers_sent()) {
       }
 
       async function confirmComposeCloseWithoutDrafts(event) {
-        if (state.skipDraftOnClose || initialSettings.compose_save_drafts) return;
+        if (state.skipDraftOnClose || composeDraftSavingEnabled()) return;
 
         event.preventDefault();
         if (state.composeCloseConfirming) return;
@@ -18507,27 +18957,122 @@ if (!headers_sent()) {
         }, 250);
       }
 
-      function openBulkForward() {
-        const uids = [...state.selectedUids].map(String).filter(Boolean);
+      function combinedForwardContent(preparedMessages) {
+        if (!preparedMessages.length) {
+          throw new Error('No selected emails are available to forward.');
+        }
+        const multiple = preparedMessages.length > 1;
+        const bodies = [];
+        const attachments = [];
+        const usedNames = new Set();
+        let attachmentBytes = 0;
+
+        for (let index = 0; index < preparedMessages.length; index++) {
+          const prepared = preparedMessages[index];
+          const mail = prepared?.mail;
+          if (!mail || typeof mail.bodyHtml !== 'string' || !mail.bodyHtml.trim()) {
+            throw new Error(`Email ${index + 1} could not be prepared for forwarding.`);
+          }
+          const subject = String(prepared.sourceSubject || mail.subject || '(No subject)');
+          bodies.push(multiple
+            ? `<div data-pse-quote="1" style="margin:20px 0"><p><b>Email ${index + 1} — ${escapeHtml(subject)}</b></p>${mail.bodyHtml}</div>`
+            : mail.bodyHtml);
+
+          for (const attachment of prepared.attachments || []) {
+            if (!attachment || !attachment.url) {
+              throw new Error(`An attachment from email ${index + 1} is unavailable.`);
+            }
+            attachmentBytes += Math.max(0, Number(attachment.size || 0));
+            if (attachmentBytes > <?= PSE_MAX_ATTACHMENT_BYTES ?>) {
+              throw new Error('Combined forwarded attachments exceed the 15 MB application limit. Select fewer emails.');
+            }
+            // Keep every file, including same-named files from different emails.
+            const originalName = String(attachment.name || attachment.filename || 'attachment.bin');
+            const dot = originalName.lastIndexOf('.');
+            const stem = dot > 0 ? originalName.slice(0, dot) : originalName;
+            const extension = dot > 0 ? originalName.slice(dot) : '';
+            let name = originalName;
+            let suffix = 2;
+            while (usedNames.has(name.toLocaleLowerCase())) {
+              name = `${stem} (${suffix++})${extension}`;
+            }
+            usedNames.add(name.toLocaleLowerCase());
+            attachments.push({...attachment, name});
+          }
+        }
+
+        return {
+          subject: multiple
+            ? `Fwd: ${preparedMessages.length} emails`
+            : String(preparedMessages[0].mail.subject || 'Fwd: (No subject)'),
+          bodyHtml: (multiple ? '<div><br></div>' : '') + bodies.join(''),
+          attachments
+        };
+      }
+
+      async function openBulkForward() {
+        if (state.forwardPreparing || $('#composeModal').classList.contains('show')) return;
+        const uids = [...new Set([...state.selectedUids].map(String).filter(Boolean))];
         if (!uids.length) {
           toast('Select at least one email to forward.', 'warning');
           return;
         }
-        resetCompose();
-        state.composeMode = 'bulk-forward';
-        state.bulkForwardUids = uids;
-        state.bulkForwardFolder = String(state.folder);
-        state.composeDirty = false;
-        $$('.pse-compose-editable').forEach(element => element.classList.add('d-none'));
-        $('#imageUploadProgress').classList.remove('d-none');
-        $('#composeTitleText').textContent = `Forward ${uids.length} selected email${uids.length === 1 ? '' : 's'} separately`;
-        $('#sendEmail').innerHTML = '<i class="fa-solid fa-share me-1"></i>Forward';
-        updateComposeDraftUi();
-        composeModal.show();
-        setTimeout(() => {
-          setActiveRecipientField('to');
-          recipientInputForField('to')?.focus();
-        }, 250);
+        if (uids.length > 200) {
+          toast('Forward at most 200 selected emails at once.', 'warning');
+          return;
+        }
+        const folder = String(state.folder);
+        const accountId = String(initialSettings.account_id || '');
+        const composeSession = state.composeSession;
+        const isCurrent = () => state.composeSession === composeSession &&
+          String(initialSettings.account_id || '') === accountId;
+        state.forwardPreparing = true;
+        pausePrefetch('forward-compose', true);
+        showSpinner('Preparing selected emails…');
+        try {
+          const preparedMessages = [];
+          for (let index = 0; index < uids.length; index++) {
+            $('#spinnerText').textContent = `Preparing email ${index + 1}/${uids.length}…`;
+            const prepared = await api('forward_prepare', {folder, uid: uids[index]}, {spinner: false});
+            if (!isCurrent()) return;
+            preparedMessages.push(prepared);
+          }
+          const content = combinedForwardContent(preparedMessages);
+          // Download the whole set together so the 15 MB limit applies to the new
+          // email, not separately to each source. Do not expose a partial draft.
+          const downloaded = await downloadForwardAttachments(
+            content.attachments,
+            'Forward — ',
+            0,
+            100,
+            (percent, label) => { $('#spinnerText').textContent = label; }
+          );
+          if (!isCurrent()) return;
+
+          // This is an ordinary new compose, just like forwarding a single email:
+          // editable subject/body, To/Cc/Bcc, attachments, drafts and one normal Send.
+          resetCompose();
+          if (isSinglePaneMobileViewport()) setComposeMaximized(true, false);
+          $('#composeSubject').value = content.subject;
+          $('#composeBody').innerHTML = content.bodyHtml;
+          state.composeFiles = downloaded;
+          state.composeDirty = true;
+          renderAttachmentList();
+          setDefaultComposeRange();
+          const newSession = state.composeSession;
+          composeModal.show();
+          setTimeout(() => {
+            if (state.composeSession !== newSession) return;
+            setActiveRecipientField('to');
+            recipientInputForField('to')?.focus();
+          }, 250);
+        } catch (error) {
+          handleError(error);
+        } finally {
+          state.forwardPreparing = false;
+          hideSpinner();
+          resumePrefetch('forward-compose');
+        }
       }
 
       function uniqueAddresses(items) {
@@ -18592,6 +19137,13 @@ if (!headers_sent()) {
               const email = item.email.toLowerCase();
               return !ownAddresses.has(email) && !toAddresses.has(email);
             });
+            const senderCopy = String(initialSettings.from_email || initialSettings.smtp_username || initialSettings.imap_username || '').trim();
+            if (senderCopy && !toAddresses.has(senderCopy.toLowerCase())) {
+              state.recipients.cc = uniqueAddresses([
+                ...state.recipients.cc,
+                {name: initialSettings.from_name || '', email: senderCopy}
+              ]);
+            }
             renderRecipientChips('cc');
             setRecipientRowVisibility('cc', true);
           }
@@ -18651,7 +19203,8 @@ if (!headers_sent()) {
         attachments,
         progressPrefix = '',
         progressBase = 0,
-        progressSpan = 100
+        progressSpan = 100,
+        reportProgress = updateImageProgress
       ) {
         const items = (attachments || []).filter(item => item && item.url);
         if (!items.length) return [];
@@ -18696,7 +19249,7 @@ if (!headers_sent()) {
             const bytesLabel = expectedBytes > 0
               ? `${formatBytes(loaded)} / ${formatBytes(expectedBytes)}`
               : formatBytes(loaded);
-            updateImageProgress(
+            reportProgress(
               percent,
               `${progressPrefix}Downloading ${index + 1}/${items.length}: ${name} — ${bytesLabel}`
             );
@@ -18733,7 +19286,7 @@ if (!headers_sent()) {
           completedBytes += expectedBytes || blob.size;
         }
 
-        updateImageProgress(progressBase + progressSpan, `${progressPrefix}Attachment download complete`);
+        reportProgress(progressBase + progressSpan, `${progressPrefix}Attachment download complete`);
         return files;
       }
 
@@ -19241,126 +19794,7 @@ if (!headers_sent()) {
         return result.isConfirmed;
       }
 
-      async function sendBulkForward() {
-        const sendButton = $('#sendEmail');
-        const wasDisabled = Boolean(sendButton?.disabled);
-        if (sendButton) sendButton.disabled = true;
-        try {
-          if (!commitPendingRecipientInputs()) {
-            throw new Error('Check the recipient email address.');
-          }
-          const recipients = [
-            ...state.recipients.to,
-            ...state.recipients.cc,
-            ...state.recipients.bcc
-          ];
-          if (!recipients.length) {
-            throw new Error('Add at least one recipient.');
-          }
-          if (!state.bulkForwardUids.length) {
-            throw new Error('No selected emails are available to forward.');
-          }
-          if (!await askAboutUnknownContacts()) return;
-
-          const folder = state.bulkForwardFolder || state.folder;
-          const count = state.bulkForwardUids.length;
-          let sentCount = 0;
-          const failures = [];
-          const warnings = [];
-
-          for (let index = 0; index < count; index++) {
-            const uid = state.bulkForwardUids[index];
-            const base = (index / count) * 100;
-            const span = 100 / count;
-            const prefix = `Email ${index + 1}/${count} — `;
-            updateImageProgress(base, `${prefix}preparing…`);
-
-            try {
-              const prepared = await api('forward_prepare', {
-                folder,
-                uid,
-                to: state.recipients.to,
-                cc: state.recipients.cc,
-                bcc: state.recipients.bcc
-              }, {spinner: false});
-              const mail = prepared.mail || {};
-              const attachments = Array.isArray(prepared.attachments) ? prepared.attachments : [];
-              let attachmentRefs = [];
-
-              if (attachments.length) {
-                const downloaded = await downloadForwardAttachments(
-                  attachments,
-                  prefix,
-                  base,
-                  span * .45
-                );
-                attachmentRefs = await uploadComposeAttachments(
-                  downloaded,
-                  prefix,
-                  base + span * .45,
-                  span * .45,
-                  false
-                );
-              } else {
-                updateImageProgress(base + span * .9, `${prefix}no attachments; sending…`);
-              }
-
-              mail.attachments = attachmentRefs;
-              updateImageProgress(base + span * .92, `${prefix}sending…`);
-              const result = await api('send_message', mail, {spinner: false});
-              sentCount++;
-              const warning = String(result.sentCopyWarning || '').trim();
-              if (warning) warnings.push({uid, warning});
-              updateImageProgress(base + span, `${prefix}sent`);
-            } catch (error) {
-              failures.push({uid, error: error?.message || String(error)});
-              updateImageProgress(base + span, `${prefix}failed`);
-            }
-          }
-
-          const failedCount = failures.length;
-          if (sentCount > 0) {
-            noteSentMessage(sentCount);
-            state.skipDraftOnClose = true;
-            state.composeDirty = false;
-          }
-
-          if (failedCount === 0) {
-            updateImageProgress(100, `${sentCount} email${sentCount === 1 ? '' : 's'} forwarded`);
-            setTimeout(() => updateImageProgress(0, ''), 900);
-            composeModal.hide();
-          }
-
-          if (failedCount > 0) {
-            state.bulkForwardUids = failures.map(item => String(item.uid || '')).filter(Boolean);
-            $('#composeTitleText').textContent = `Retry ${failedCount} failed forwarded email${failedCount === 1 ? '' : 's'}`;
-            const firstFailure = String(failures[0]?.error || 'Unknown error');
-            toast(
-              `${sentCount} forwarded, ${failedCount} failed. First error: ${firstFailure}`,
-              sentCount > 0 ? 'warning' : 'danger'
-            );
-          } else if (warnings.length) {
-            toast(
-              `${sentCount} email${sentCount === 1 ? '' : 's'} forwarded separately. ` +
-              `${warnings.length} Sent-folder warning${warnings.length === 1 ? '' : 's'}.`,
-              'warning'
-            );
-          } else {
-            toast(`${sentCount} email${sentCount === 1 ? '' : 's'} forwarded separately.`);
-          }
-        } catch (error) {
-          updateImageProgress(0, '');
-          handleError(error);
-        } finally {
-          if (sendButton) sendButton.disabled = wasDisabled;
-        }
-      }
-
       async function sendCompose() {
-        if (state.composeMode === 'bulk-forward') {
-          await sendBulkForward();
-          return;
-        }
         const sendButton = $('#sendEmail');
         const wasDisabled = Boolean(sendButton?.disabled);
         if (sendButton) sendButton.disabled = true;
@@ -19372,11 +19806,16 @@ if (!headers_sent()) {
           if (!await confirmPossibleMissingAttachment(payload)) return;
           if (!await askAboutUnknownContacts()) return;
           payload.attachments = await uploadComposeAttachments();
-          const draftId = $('#composePseId').value;
+          const pseDraftId = $('#composePseId').value;
+          const gmailDraftId = $('#composeGmailDraftId').value;
+          if (gmailDraftId) payload.gmailDraftId = gmailDraftId;
           const sent = await api('send_message', payload, {spinnerText: 'Sending email…'});
-          if (draftId) {
-            await api('delete_pse', {id: draftId}, {spinner: false});
+          if (pseDraftId) {
+            await api('delete_pse', {id: pseDraftId}, {spinner: false});
             await refreshSavedCount(false);
+          }
+          if (gmailDraftId) {
+            await refreshNativeDraftFolderAfterChange();
           }
           state.skipDraftOnClose = true;
           state.composeDirty = false;
@@ -19397,37 +19836,60 @@ if (!headers_sent()) {
         }
       }
 
+      async function saveDraftMessage(message, spinner = true) {
+        if (initialSettings.account_type === 'gmail') {
+          const result = await api('gmail_draft_save', {
+            draftId: $('#composeGmailDraftId').value,
+            message
+          }, {spinner, spinnerText: 'Saving to Gmail Drafts…'});
+          $('#composeGmailDraftId').value = result.saved.id;
+          $('#composePseId').value = '';
+          updateComposeDraftUi();
+          await refreshNativeDraftFolderAfterChange(false);
+          return {type: 'gmail', id: result.saved.id};
+        }
+        const result = await api('save_pse', {
+          id: $('#composePseId').value,
+          message
+        }, {spinner, spinnerText: 'Saving draft…'});
+        $('#composePseId').value = result.saved.id;
+        $('#composeGmailDraftId').value = '';
+        await refreshSavedCount(false);
+        return {type: 'pse', id: result.saved.id};
+      }
+
       async function saveCompose() {
-        if (!initialSettings.compose_save_drafts) return;
+        if (!composeDraftSavingEnabled()) return;
         try {
           const message = await composePayload();
-          const result = await api('save_pse', {
-            id: $('#composePseId').value,
-            message
-          }, {spinnerText: 'Saving draft…'});
-          $('#composePseId').value = result.saved.id;
+          const saved = await saveDraftMessage(message, true);
           state.composeDirty = false;
-          await refreshSavedCount(false);
           state.skipDraftOnClose = true;
           composeModal.hide();
-          toast('Draft saved. Reopen it from Saved drafts (.PSE) in the left column.');
+          toast(saved.type === 'gmail'
+            ? 'Draft saved in the Gmail Drafts folder.'
+            : 'Draft saved. Reopen it from Saved drafts (.PSE) in the left column.');
         } catch (error) {
           handleError(error);
         }
       }
 
       async function deleteComposeForever() {
-        const draftId = $('#composePseId').value;
+        const pseDraftId = $('#composePseId').value;
+        const gmailDraftId = $('#composeGmailDraftId').value;
         try {
-          if (draftId) {
-            await api('delete_pse', {id: draftId}, {spinnerText: 'Deleting draft forever…'});
+          if (gmailDraftId) {
+            await api('gmail_draft_delete', {draftId: gmailDraftId}, {spinnerText: 'Deleting Gmail draft forever…'});
+            await refreshNativeDraftFolderAfterChange();
+          } else if (pseDraftId) {
+            await api('delete_pse', {id: pseDraftId}, {spinnerText: 'Deleting draft forever…'});
             await refreshSavedCount(false);
           }
           state.skipDraftOnClose = true;
           state.composeDirty = false;
           $('#composeModal').addEventListener('hidden.bs.modal', resetCompose, {once: true});
           composeModal.hide();
-          toast(draftId ? 'Draft deleted forever.' : 'Email discarded.', 'info');
+          toast((gmailDraftId || pseDraftId) ? 'Draft deleted forever.' : 'Email discarded.', 'info');
         } catch (error) {
           handleError(error);
         }
@@ -19447,11 +19909,7 @@ if (!headers_sent()) {
       }
 
       async function autoSaveComposeDraft() {
-        if (state.composeMode === 'bulk-forward') {
-          state.skipDraftOnClose = false;
-          return;
-        }
-        if (!initialSettings.compose_save_drafts) {
+        if (!composeDraftSavingEnabled()) {
           state.skipDraftOnClose = false;
           return;
         }
@@ -19463,14 +19921,11 @@ if (!headers_sent()) {
         try {
           const message = await composePayload();
           if (!composeHasContent()) return;
-          const result = await api('save_pse', {
-            id: $('#composePseId').value,
-            message
-          }, {spinner: false});
-          $('#composePseId').value = result.saved.id;
+          await saveDraftMessage(message, false);
           state.composeDirty = false;
-          await refreshSavedCount(false);
-          toast('Draft saved automatically.', 'info');
+          toast(initialSettings.account_type === 'gmail'
+            ? 'Draft saved automatically in Gmail Drafts.'
+            : 'Draft saved automatically.', 'info');
         } catch (error) {
           handleError(error);
         }
@@ -19504,7 +19959,6 @@ if (!headers_sent()) {
         const modal = $('#composeModal');
         if (
           state.browserCloseDraftStarted ||
-          state.composeMode === 'bulk-forward' ||
           !modal?.classList.contains('show') ||
           !composeHasContent()
         ) {
@@ -19512,17 +19966,23 @@ if (!headers_sent()) {
         }
 
         state.browserCloseDraftStarted = true;
-        const draftId = $('#composePseId').value;
+        const pseDraftId = $('#composePseId').value;
+        const gmailDraftId = $('#composeGmailDraftId').value;
         browserCloseComposePayload().then(message => {
           const appearance = pickAppearanceSettings(initialSettings);
-          return fetch('?ajax=save_pse', {
+          const gmail = initialSettings.account_type === 'gmail';
+          return fetch(gmail ? '?ajax=gmail_draft_save' : '?ajax=save_pse', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'X-PSE-CSRF': csrf
             },
-            body: JSON.stringify({
-              id: draftId,
+            body: JSON.stringify(gmail ? {
+              draftId: gmailDraftId,
+              message,
+              _appearance: appearance
+            } : {
+              id: pseDraftId,
               message,
               _appearance: appearance
             }),
@@ -19543,6 +20003,84 @@ if (!headers_sent()) {
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1500);
+      }
+
+      function nativeDraftFolder() {
+        return state.folders.find(folder => folder.special === 'drafts') || null;
+      }
+
+      async function refreshNativeDraftFolderAfterChange(refreshVisible = true) {
+        if (initialSettings.account_type !== 'gmail') return;
+        const folder = nativeDraftFolder();
+        if (!folder) return;
+        const folderId = String(folder.id);
+        state.folderSyncedAt.delete(folderId);
+        state.staleFolders.add(folderId);
+        invalidateMessageListCacheForFolder(folderId);
+        state.messageDetailsCache.clear();
+        if (refreshVisible && String(state.folder) === folderId) {
+          await loadMessages(1, false, true, 'Refreshing Gmail Drafts…');
+        }
+      }
+
+      function applyGmailDraftRecord(record) {
+        if (!record || !record.draftId || !record.message) {
+          throw new Error('Gmail returned an invalid draft.');
+        }
+        const message = record.message;
+        state.recipients.to = Array.isArray(message.to) ? message.to : [];
+        state.recipients.cc = Array.isArray(message.cc) ? message.cc : [];
+        state.recipients.bcc = Array.isArray(message.bcc) ? message.bcc : [];
+        ['to', 'cc', 'bcc'].forEach(field => renderRecipientChips(field));
+        const pendingRecipients = message.pendingRecipients && typeof message.pendingRecipients === 'object'
+          ? message.pendingRecipients
+          : {};
+        ['to', 'cc', 'bcc'].forEach(field => {
+          const input = recipientInputForField(field);
+          if (input) input.value = String(pendingRecipients[field] || '');
+        });
+        $('#composeSubject').value = message.subject || '';
+        $('#composeBody').innerHTML = message.bodyHtml || escapeHtml(message.bodyText || '').replace(/\n/g, '<br>');
+        // A native Gmail draft already contains its complete body. Never append a
+        // second configured PSE signature just because it was created elsewhere.
+        state.composeSignatureManaged = true;
+        setDefaultComposeRange();
+        state.composeFiles = (message.attachments || []).map(item => ({
+          name: item.name || 'attachment.bin',
+          type: item.type || 'application/octet-stream',
+          data: item.data || '',
+          size: Number(item.size || 0)
+        }));
+        $('#composePseId').value = '';
+        $('#composeGmailDraftId').value = record.draftId || '';
+        setRecipientRowVisibility('cc', true);
+        setRecipientRowVisibility('bcc', true);
+        renderAttachmentList();
+        state.composeDirty = false;
+        state.skipDraftOnClose = false;
+        $('#composeTitleText').textContent = 'Edit Gmail draft';
+        updateComposeDraftUi();
+      }
+
+      async function openGmailDraft(draftId, messageUid = '') {
+        if (initialSettings.account_type !== 'gmail' || !draftId) return;
+        try {
+          if (messageUid) {
+            state.selectedUid = String(messageUid);
+            renderMessages();
+          }
+          const result = await api('gmail_draft_load', {draftId}, {spinnerText: 'Opening Gmail draft…'});
+          resetCompose();
+          applyGmailDraftRecord(result.draft);
+          if (isSinglePaneMobileViewport()) setComposeMaximized(true, false);
+          composeModal.show();
+          setTimeout(() => {
+            setActiveRecipientField('to');
+            recipientInputForField('to')?.focus();
+          }, 250);
+        } catch (error) {
+          handleError(error);
+        }
       }
 
       function applyPseRecord(record) {
@@ -19577,6 +20115,7 @@ if (!headers_sent()) {
           data: item.data || ''
         }));
         $('#composePseId').value = record.id || '';
+        $('#composeGmailDraftId').value = '';
         setRecipientRowVisibility('cc', true);
         setRecipientRowVisibility('bcc', true);
         renderAttachmentList();
@@ -19585,6 +20124,10 @@ if (!headers_sent()) {
       }
 
       async function openSaved() {
+        if (initialSettings.account_type === 'gmail') {
+          toast('Gmail drafts are stored in the native Drafts folder.', 'info');
+          return;
+        }
         try {
           const result = await api('saved_list', {}, {spinnerText: 'Loading saved emails…'});
           updateSavedDraftCount(result.items.length);
@@ -19621,6 +20164,12 @@ if (!headers_sent()) {
       }
 
       async function refreshSavedCount(spinner = false) {
+        if (initialSettings.account_type === 'gmail') {
+          updateSavedDraftCount(0);
+          $('#savedButton').classList.add('d-none');
+          return 0;
+        }
+        $('#savedButton').classList.remove('d-none');
         try {
           const result = await api('saved_list', {}, {spinner, spinnerText: 'Checking saved drafts…'});
           updateSavedDraftCount(result.items.length);
@@ -20964,13 +21513,14 @@ if (!headers_sent()) {
         }
       });
       $('#composeAttachments').addEventListener('change', event => {
-        state.composeFiles = [...state.composeFiles, ...Array.from(event.target.files)];
-        const total = state.composeFiles.reduce((sum, file) => sum + Number(file.size || file.data?.length * .75 || 0), 0);
+        const files = [...state.composeFiles, ...Array.from(event.target.files)];
+        const total = files.reduce((sum, file) => sum + Number(file.size || file.data?.length * .75 || 0), 0);
         if (total > <?= PSE_MAX_ATTACHMENT_BYTES ?>) {
-          toast('Attachments exceed the 15 MB limit.', 'warning');
-          state.composeFiles = [];
+          toast('Attachments exceed the 15 MB limit. Existing attachments have been kept.', 'warning');
           event.target.value = '';
+          return;
         }
+        state.composeFiles = files;
         markComposeDirty();
         renderAttachmentList();
       });
@@ -21221,7 +21771,7 @@ if (!headers_sent()) {
       setInterval(() => {
         flushActionQueue(true);
       }, 60000);
-      setInterval(pollFolderStatus, 60000);
+      setInterval(pollFolderStatus, mailboxCheckIntervalMs());
       setInterval(refreshLastSyncStatus, 300000);
       document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
@@ -21249,6 +21799,8 @@ if (!headers_sent()) {
         installedEvidence: 'none'
       };
       const pwaHintKey = 'pse_pwa_installed_hint_v1';
+      const pwaAppIconUrl = <?= json_encode((string)$pseIconHref, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+      const pwaAppTitle = <?= json_encode((string)($pseUiSettings['app_title'] ?? 'PSE Email'), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
       const pwaWorkerUrl = new URL('?pwa=sw', location.href).href;
       const pwaScopeUrl = new URL('./', location.href).href;
 
@@ -21404,9 +21956,9 @@ if (!headers_sent()) {
         return `
           <div class="pse-pwa-dialog">
             <div class="pse-pwa-dialog-hero">
-              <img class="pse-pwa-dialog-logo" src="${escapePwaHtml(appIconUrl())}" alt="PSE">
+              <img class="pse-pwa-dialog-logo" src="${escapePwaHtml(pwaAppIconUrl)}" alt="PSE">
               <div>
-                <div class="pse-pwa-dialog-title">Install ${escapePwaHtml(String(initialSettings.app_title || 'PSE Email'))}</div>
+                <div class="pse-pwa-dialog-title">Install ${escapePwaHtml(pwaAppTitle || 'PSE Email')}</div>
                 <div class="pse-pwa-dialog-status"><span class="pse-pwa-status-dot ${escapePwaClass(state.dot)}"></span>${escapePwaHtml(state.label)}</div>
               </div>
             </div>
