@@ -93,6 +93,13 @@ function pseGoogleApi(array $settings, string $method, string $path, array $quer
   ];
 }
 
+// This fixture isolates recipient presentation; persistent cache behavior has
+// its own Gmail message-cache fixtures.
+function pseGmailCachedMessage(array $settings, string $id, array $query): array
+{
+  return pseGoogleApi($settings, 'GET', 'messages/' . rawurlencode($id), $query);
+}
+
 foreach (['FT_UID', 'SORTDATE', 'SE_UID', 'SA_MESSAGES', 'SA_UNSEEN'] as $index => $name) {
   define($name, $index + 1);
 }
