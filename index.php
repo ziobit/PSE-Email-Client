@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.18.1
+ * PSE Email (PSE), release v2.18.2
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.18.1';
+const PSE_VERSION = '2.18.2';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -9470,7 +9470,7 @@ function pseApplyClientAppearanceSettings(array $settings, $raw): array
 /* PSE_EMBEDDED_CHANGELOG_START */
 function pseBundledChangelogText(): string
 {
-  return base64_decode('IyBQU0UgRW1haWwgQ2xpZW50IGNoYW5nZWxvZwoKUmVsZWFzZSBub3RlcyBhcmUgc2hvd24gd2hlbiBjaGVja2luZyBmb3IgYW4gdXBkYXRlIGFuZCBhZnRlciBhbiB1cGRhdGUgaXMgaW5zdGFsbGVkLiBEYXRlcyBpbiBhdXRvbWF0aWNhbGx5IHJlY29yZGVkIG1lcmdlIGVudHJpZXMgdXNlIFVUQy4gVGhlIHJlcG9zaXRvcnkga2VlcHMgdGhlIGNvbXBsZXRlIGhpc3Rvcnk7IHRoZSBzaW5nbGUgUEhQIGZpbGUgYnVuZGxlcyB0aGUgbGF0ZXN0IG5vdGVzIGZvciBvZmZsaW5lIHVzZS4KCiMjIDIuMTguMSAoMjAyNi0xMC0wNikKCi0gQWRkZWQgdGhpcyBjaGFuZ2Vsb2cgYW5kIGF1dG9tYXRpYyBtYWludGVuYW5jZSBhZnRlciBldmVyeSBtZXJnZSBpbnRvIGBtYWluYCwgaW5jbHVkaW5nIEdpdEh1YiBtZXJnZSwgc3F1YXNoLCBhbmQgcmViYXNlIG1lcmdlcy4KLSBFYWNoIG1lcmdlIHB1Ymxpc2hlcyBhIG5ldyBhcHAgdmVyc2lvbiBhdXRvbWF0aWNhbGx5IGlmIGl0cyBjaGFuZ2VzIGRvIG5vdCBhbHJlYWR5IGluY2x1ZGUgYSBoaWdoZXIgdmVyc2lvbiBudW1iZXIuCi0gVGhlIHVwZGF0ZSBkaWFsb2cgcHJlc2VudHMgcmVsZWFzZSBub3RlcyBiZWZvcmUgaW5zdGFsbGF0aW9uIGFuZCBhZ2FpbiBhZnRlciBhIHN1Y2Nlc3NmdWwgdXBkYXRlLiBOb3RlcyBhcmUgcGlubmVkIHRvIHRoZSBzYW1lIHNvdXJjZSByZXZpc2lvbiBhcyB0aGUgZG93bmxvYWRlZCBQSFAgZmlsZS4KLSBUaGUgUEhQIGZpbGUgaW5jbHVkZXMgYnVuZGxlZCByZWxlYXNlIG5vdGVzIHNvIGRlcGxveW1lbnQgY29udGludWVzIHRvIHJlcXVpcmUgb25seSBgaW5kZXgucGhwYC4KCiMjIyBTZW50LCBmb2xkZXIgY2xlYW51cCBhbmQgV2luZG93cyBmaWxlcwoKLSBTZW50LWZvbGRlciByb3dzIGFuZCBjYWxlbmRhciBlbnRyaWVzIHNob3cgcmVjaXBpZW50IG5hbWVzIGFuZCBhZGRyZXNzZXMsIHdpdGggQ2MvQmNjIGZhbGxiYWNrIHdoZW4gVG8gaXMgZW1wdHkuIFNlbmRlciBkZXRhaWxzIHJlbWFpbiBhdmFpbGFibGUgZm9yIHJlcGxpZXMgYW5kIHNlbmRlciBmaWx0ZXJpbmcuCi0gQWRkZWQgYSByZWQgY2xlYW51cCBiaW4gYWZ0ZXIgZWFjaCBmb2xkZXIncyB1bnJlYWQgY291bnQuIENob29zZSBvbmUgd2Vlaywgb25lIG1vbnRoLCB0d28gbW9udGhzLCBhbGwgbWVzc2FnZXMsIG9yIGEgY3VzdG9tIGRhdGU7IGN1dG9mZiBkYXRlcyBhcmUgaW5jbHVzaXZlIGFuZCBkaXNwbGF5ZWQgaW4gdGhlIGNvbmZpZ3VyZWQgYWNjb3VudCB0aW1lem9uZS4KLSBGb2xkZXIgY2xlYW51cCBwcmV2aWV3cyBhbGwgbWF0Y2hpbmcgbWVzc2FnZXMgYW5kIGFsd2F5cyByZXF1aXJlcyB0eXBpbmcgYFlFUyBERUxFVEUgQUxMYC4gU2VydmVyIHNuYXBzaG90cyBiaW5kIHRoZSBvcGVyYXRpb24gdG8gdGhlIGFjY291bnQsIGZvbGRlciwgc2VsZWN0ZWQgbWVzc2FnZXMsIGFuZCBkZXN0aW5hdGlvbjsgYmF0Y2hlcyBjYW4gcmVzdW1lIGFmdGVyIGEgZmFpbGVkIHJlcXVlc3QuCi0gQ2xlYW51cCBub3JtYWxseSBtb3ZlcyBtZXNzYWdlcyB0byBUcmFzaC4gQ2xlYW5pbmcgVHJhc2gsIG9yIGFuIElNQVAgYWNjb3VudCB3aXRob3V0IGEgZGV0ZWN0ZWQgVHJhc2ggZm9sZGVyLCBkZWxldGVzIHBlcm1hbmVudGx5OyB0aGUgY29uZmlybWF0aW9uIGV4cGxhaW5zIHdoaWNoIG9wZXJhdGlvbiBhcHBsaWVzLgotIEFkZGVkIGJsYWNrLWNhdCBhcHBsaWNhdGlvbiBhbmQgZG9jdW1lbnQgaWNvbnMsIGEgV2luZG93cyBgLmljb2AsIHBvcnRhYmxlIGAucHNlYCBlbWFpbCBhbmQgZHJhZnQgZmlsZXMsIGFuZCBsb2NhbC1maWxlIG9wZW5pbmcgd2l0aCBSZXBseSwgUmVwbHkgYWxsLCBGb3J3YXJkLCBhbmQgRWRpdCBjb3B5LgotIEFkZGVkIFdpbmRvd3MgYXBwIGluc3RhbGxhdGlvbiwgYC5wc2VgIGFzc29jaWF0aW9uLCBhbmQgaWNvbiBzZXR1cCBpbnN0cnVjdGlvbnMgaW4gYFJFQURNRS1XaW5kb3dzLVBTRS5tZGAuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTA2OiBbIzFdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzEpIOKAlCBSZWxlYXNlIDJcLjE4XC4xOiBTZW50IHJlY2lwaWVudHMsIGZvbGRlciBjbGVhbnVwLCBQU0UgZmlsZXMgYW5kIHVwZGF0ZSBjaGFuZ2Vsb2cuIENvbW1pdCBbY2IwMmVmZl0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC9jYjAyZWZmMTQwYWJlODFhYjNkNWQ4ZGMwYTNkNDBmMTg5M2Y4ZWU1KS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjMSAtLT4KCg==', true) ?: '';
+  return base64_decode('IyBQU0UgRW1haWwgQ2xpZW50IGNoYW5nZWxvZwoKUmVsZWFzZSBub3RlcyBhcmUgc2hvd24gd2hlbiBjaGVja2luZyBmb3IgYW4gdXBkYXRlIGFuZCBhZnRlciBhbiB1cGRhdGUgaXMgaW5zdGFsbGVkLiBEYXRlcyBpbiBhdXRvbWF0aWNhbGx5IHJlY29yZGVkIG1lcmdlIGVudHJpZXMgdXNlIFVUQy4gVGhlIHJlcG9zaXRvcnkga2VlcHMgdGhlIGNvbXBsZXRlIGhpc3Rvcnk7IHRoZSBzaW5nbGUgUEhQIGZpbGUgYnVuZGxlcyB0aGUgbGF0ZXN0IG5vdGVzIGZvciBvZmZsaW5lIHVzZS4KCiMjIDIuMTguMiAoMjAyNi0xMC0wNikKCi0gT3BlbmluZyBhIGAucHNlYCBmaWxlIHJlcXVlc3RzIHRoZSBleGlzdGluZyBQV0Egd2luZG93IHdpdGhvdXQgcmVsb2FkaW5nIGl0IG9uIGJyb3dzZXJzIHN1cHBvcnRpbmcgdGhlIExhdW5jaCBIYW5kbGVyIEFQSS4gTXVsdGlwbGUgZmlsZXMgb3BlbmVkIHRvZ2V0aGVyIHNoYXJlIG9uZSB3aW5kb3cuCi0gQSBuZXcgZmlsZS1sYXVuY2ggd2luZG93IGdvZXMgZGlyZWN0bHkgdG8gaXRzIGxvY2FsIGZpbGVzLiBTdGFydHVwIGZvbGRlci9tZXNzYWdlIHN5bmNpbmcsIHF1ZXVlZCBtYWlsYm94IHdvcmssIHBvbGxpbmcsIGFuZCBtZXNzYWdlIHByZWZldGNoIHN0YXkgcGF1c2VkIHVudGlsIE9wZW4gbWFpbGJveCBvciBSZWZyZXNoIGlzIGNob3Nlbi4gUGFzc3dvcmQgc2lnbi1pbiBwcmVzZXJ2ZXMgdGhpcyBiZWhhdmlvci4KLSBGb2xkZXIgY2xlYW51cCBub3cgc2hvd3MgYSBwcm9ncmVzcyBiYXIsIHNwaW5uZXIsIHByb2Nlc3NlZCBjb3VudHMsIGVzdGltYXRlZCBmaW5pc2ggdGltZSwgYW5kIENhbmNlbC4gRXN0aW1hdGVzIGFkanVzdCBhZnRlciBjb21wbGV0ZWQgYmF0Y2hlcy4gQ2FuY2VsbGF0aW9uIHN0b3BzIGZ1dHVyZSBiYXRjaGVzIGFmdGVyIHRoZSBjdXJyZW50IHJlcXVlc3QgZmluaXNoZXMgYW5kIHByZXNlcnZlcyB0aGUgcmVtYWluaW5nIHNlbGVjdGlvbiBmb3IgYSBjb25maXJtZWQgcmVzdW1lLgoKIyMgMi4xOC4xICgyMDI2LTEwLTA2KQoKLSBBZGRlZCB0aGlzIGNoYW5nZWxvZyBhbmQgYXV0b21hdGljIG1haW50ZW5hbmNlIGFmdGVyIGV2ZXJ5IG1lcmdlIGludG8gYG1haW5gLCBpbmNsdWRpbmcgR2l0SHViIG1lcmdlLCBzcXVhc2gsIGFuZCByZWJhc2UgbWVyZ2VzLgotIEVhY2ggbWVyZ2UgcHVibGlzaGVzIGEgbmV3IGFwcCB2ZXJzaW9uIGF1dG9tYXRpY2FsbHkgaWYgaXRzIGNoYW5nZXMgZG8gbm90IGFscmVhZHkgaW5jbHVkZSBhIGhpZ2hlciB2ZXJzaW9uIG51bWJlci4KLSBUaGUgdXBkYXRlIGRpYWxvZyBwcmVzZW50cyByZWxlYXNlIG5vdGVzIGJlZm9yZSBpbnN0YWxsYXRpb24gYW5kIGFnYWluIGFmdGVyIGEgc3VjY2Vzc2Z1bCB1cGRhdGUuIE5vdGVzIGFyZSBwaW5uZWQgdG8gdGhlIHNhbWUgc291cmNlIHJldmlzaW9uIGFzIHRoZSBkb3dubG9hZGVkIFBIUCBmaWxlLgotIFRoZSBQSFAgZmlsZSBpbmNsdWRlcyBidW5kbGVkIHJlbGVhc2Ugbm90ZXMgc28gZGVwbG95bWVudCBjb250aW51ZXMgdG8gcmVxdWlyZSBvbmx5IGBpbmRleC5waHBgLgoKIyMjIFNlbnQsIGZvbGRlciBjbGVhbnVwIGFuZCBXaW5kb3dzIGZpbGVzCgotIFNlbnQtZm9sZGVyIHJvd3MgYW5kIGNhbGVuZGFyIGVudHJpZXMgc2hvdyByZWNpcGllbnQgbmFtZXMgYW5kIGFkZHJlc3Nlcywgd2l0aCBDYy9CY2MgZmFsbGJhY2sgd2hlbiBUbyBpcyBlbXB0eS4gU2VuZGVyIGRldGFpbHMgcmVtYWluIGF2YWlsYWJsZSBmb3IgcmVwbGllcyBhbmQgc2VuZGVyIGZpbHRlcmluZy4KLSBBZGRlZCBhIHJlZCBjbGVhbnVwIGJpbiBhZnRlciBlYWNoIGZvbGRlcidzIHVucmVhZCBjb3VudC4gQ2hvb3NlIG9uZSB3ZWVrLCBvbmUgbW9udGgsIHR3byBtb250aHMsIGFsbCBtZXNzYWdlcywgb3IgYSBjdXN0b20gZGF0ZTsgY3V0b2ZmIGRhdGVzIGFyZSBpbmNsdXNpdmUgYW5kIGRpc3BsYXllZCBpbiB0aGUgY29uZmlndXJlZCBhY2NvdW50IHRpbWV6b25lLgotIEZvbGRlciBjbGVhbnVwIHByZXZpZXdzIGFsbCBtYXRjaGluZyBtZXNzYWdlcyBhbmQgYWx3YXlzIHJlcXVpcmVzIHR5cGluZyBgWUVTIERFTEVURSBBTExgLiBTZXJ2ZXIgc25hcHNob3RzIGJpbmQgdGhlIG9wZXJhdGlvbiB0byB0aGUgYWNjb3VudCwgZm9sZGVyLCBzZWxlY3RlZCBtZXNzYWdlcywgYW5kIGRlc3RpbmF0aW9uOyBiYXRjaGVzIGNhbiByZXN1bWUgYWZ0ZXIgYSBmYWlsZWQgcmVxdWVzdC4KLSBDbGVhbnVwIG5vcm1hbGx5IG1vdmVzIG1lc3NhZ2VzIHRvIFRyYXNoLiBDbGVhbmluZyBUcmFzaCwgb3IgYW4gSU1BUCBhY2NvdW50IHdpdGhvdXQgYSBkZXRlY3RlZCBUcmFzaCBmb2xkZXIsIGRlbGV0ZXMgcGVybWFuZW50bHk7IHRoZSBjb25maXJtYXRpb24gZXhwbGFpbnMgd2hpY2ggb3BlcmF0aW9uIGFwcGxpZXMuCi0gQWRkZWQgYmxhY2stY2F0IGFwcGxpY2F0aW9uIGFuZCBkb2N1bWVudCBpY29ucywgYSBXaW5kb3dzIGAuaWNvYCwgcG9ydGFibGUgYC5wc2VgIGVtYWlsIGFuZCBkcmFmdCBmaWxlcywgYW5kIGxvY2FsLWZpbGUgb3BlbmluZyB3aXRoIFJlcGx5LCBSZXBseSBhbGwsIEZvcndhcmQsIGFuZCBFZGl0IGNvcHkuCi0gQWRkZWQgV2luZG93cyBhcHAgaW5zdGFsbGF0aW9uLCBgLnBzZWAgYXNzb2NpYXRpb24sIGFuZCBpY29uIHNldHVwIGluc3RydWN0aW9ucyBpbiBgUkVBRE1FLVdpbmRvd3MtUFNFLm1kYC4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMDY6IFsjMV0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvMSkg4oCUIFJlbGVhc2UgMlwuMThcLjE6IFNlbnQgcmVjaXBpZW50cywgZm9sZGVyIGNsZWFudXAsIFBTRSBmaWxlcyBhbmQgdXBkYXRlIGNoYW5nZWxvZy4gQ29tbWl0IFtjYjAyZWZmXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0L2NiMDJlZmYxNDBhYmU4MWFiM2Q1ZDhkYzBhM2Q0MGYxODkzZjhlZTUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMxIC0tPgo=', true) ?: '';
 }
 /* PSE_EMBEDDED_CHANGELOG_END */
 
@@ -9922,7 +9922,9 @@ function pseHandleAjax(string $action, array $settings): void
         pseJson(['ok' => false, 'error' => 'Incorrect password.'], 401);
       }
       pseLogin($settings);
-      $queueStatus = pseHandleActionQueue($settings);
+      $queueStatus = ($data['openPse'] ?? null) === true
+        ? ['processed' => 0, 'failed' => 0, 'pending' => pseActionQueueCount()]
+        : pseHandleActionQueue($settings);
       pseJson(['ok' => true, 'queue' => $queueStatus]);
       break;
 
@@ -13075,6 +13077,7 @@ function pseServePwaManifest(): void
     'scope' => $scopePath,
     'display' => 'standalone',
     'display_override' => ['standalone', 'minimal-ui'],
+    'launch_handler' => ['client_mode' => 'focus-existing'],
     'background_color' => (string)($settings['background_color'] ?? '#f3f5f8'),
     'theme_color' => (string)($settings['primary_color'] ?? '#1769aa'),
     'categories' => ['productivity', 'utilities'],
@@ -13082,7 +13085,7 @@ function pseServePwaManifest(): void
       'name' => 'PSE email',
       'action' => $scriptPath . '?open_pse=1',
       'accept' => ['application/vnd.pse.email+json' => ['.pse']],
-      'launch_type' => 'multiple-clients',
+      'launch_type' => 'single-client',
       'icons' => [[
         'src' => $scriptPath . '?pwa=cat-icon&size=192',
         'sizes' => '192x192',
@@ -13256,7 +13259,7 @@ $pseQueueStatus = [
   'failed' => 0,
   'pending' => empty($pseBootError) ? pseActionQueueCount() : 0
 ];
-if ($pseAuthenticated) {
+if ($pseAuthenticated && ($_GET['open_pse'] ?? null) !== '1') {
   $pseQueueStatus = pseHandleActionQueue($pseSettings);
 }
 if ($pseAuthenticated && !headers_sent() && !empty($_COOKIE[PSE_COOKIE])) {
@@ -15138,10 +15141,23 @@ if (!headers_sent()) {
     // remain on this computer until an authenticated user opens them.
     window.pseFileLaunch = (() => {
       const authenticated = <?= !empty($pseAuthenticated) && empty($pseBootError) ? 'true' : 'false' ?>;
+      let fileLaunch = new URLSearchParams(location.search).get('open_pse') === '1';
+      let connected = false;
       let receiver = null;
       let queued = [];
       let retention = Promise.resolve();
       const databaseName = 'pse-file-launch-' + location.pathname;
+      const markFileLaunch = () => {
+        fileLaunch = true;
+        if (!authenticated || !connected) {
+          // Keep the fast path through an application-password reload.
+          try {
+            const url = new URL(location.href);
+            url.searchParams.set('open_pse', '1');
+            history.replaceState({}, '', url.pathname + url.search + url.hash);
+          } catch (ignore) {}
+        }
+      };
       let pendingKey = '';
       try {
         pendingKey = sessionStorage.getItem('pse_pending_launch_key') || `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -15209,15 +15225,19 @@ if (!headers_sent()) {
         window.launchQueue.setConsumer(async params => {
           const files = Array.from(params.files || []).filter(file => file && typeof file.getFile === 'function');
           if (!files.length) return;
+          markFileLaunch();
           queued.push(...files);
           if (receiver) await drain();
           else if (!authenticated) await retain();
         });
       }
       return {
+        isFileLaunch: () => fileLaunch,
         whenStored: () => retention,
         connect: async callback => {
           receiver = callback;
+          // Handles already delivered by the OS can open without waiting for storage.
+          await drain();
           try {
             const stored = await withStore((store, done) => {
               if (!pendingKey) { done(null); return; }
@@ -15225,12 +15245,14 @@ if (!headers_sent()) {
               request.onsuccess = () => { done(request.result); store.delete(pendingKey); };
             });
             if (stored && Date.now() - Number(stored.createdAt || 0) < 900000 && Array.isArray(stored.files)) {
+              if (stored.files.length) markFileLaunch();
               queued.unshift(...stored.files.slice(0, 20));
             }
           } catch (error) {
             // Manual Open .PSE file remains available without IndexedDB.
           }
           await drain();
+          connected = true;
         }
       };
     })();
@@ -15300,11 +15322,15 @@ if (!headers_sent()) {
       const spinner = document.getElementById('authSpinner');
       spinner.classList.add('show');
       try {
+        await window.pseFileLaunch?.whenStored();
         const action = document.getElementById('authAction').value;
         const response = await fetch('?ajax=' + encodeURIComponent(action), {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({password: document.getElementById('authPassword').value})
+          body: JSON.stringify({
+            password: document.getElementById('authPassword').value,
+            openPse: window.pseFileLaunch?.isFileLaunch() === true
+          })
         });
         const raw = await response.text();
         let result;
@@ -15411,6 +15437,10 @@ if (!headers_sent()) {
               <i class="fa-solid fa-folder-open me-2 text-pse"></i>Open .PSE file
             </button>
             <input type="file" id="localPseInput" accept=".pse,application/vnd.pse.email+json" multiple hidden>
+            <div class="alert alert-info small p-2 mt-2 mb-0 d-none" id="fileLaunchMailboxHint">
+              Mailbox sync is paused in this file window.
+              <button class="btn btn-sm btn-outline-primary w-100 mt-2" type="button" id="startMailboxFromFile">Open mailbox</button>
+            </div>
             <button
               class="btn btn-sm btn-light w-100 text-start mt-1"
               id="spaceUsedToggle"
@@ -15614,9 +15644,19 @@ if (!headers_sent()) {
           <div class="form-text" id="folderCleanupTimezone"></div>
           <div class="alert alert-warning mt-3 mb-0" id="folderCleanupDescription"></div>
           <div class="small mt-3" id="folderCleanupProgress" role="status" aria-live="polite">Loading dates...</div>
+          <div class="d-none mt-3" id="folderCleanupActivity">
+            <div class="d-flex align-items-center gap-2 small">
+              <span class="spinner-border spinner-border-sm d-none" id="folderCleanupSpinner" aria-hidden="true"></span>
+              <span id="folderCleanupCount"></span>
+            </div>
+            <div class="progress mt-2" style="height: 1.25rem;">
+              <div class="progress-bar" id="folderCleanupProgressBar" role="progressbar" aria-label="Folder cleanup progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%;">0%</div>
+            </div>
+            <div class="small text-body-secondary mt-1" id="folderCleanupEstimate"></div>
+          </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-secondary" id="folderCleanupCancel">Cancel</button>
           <button type="button" class="btn btn-danger" id="folderCleanupDelete" disabled><i class="fa-solid fa-trash-can me-1"></i>Delete</button>
         </div>
       </div>
@@ -16458,6 +16498,7 @@ if (!headers_sent()) {
         currentUnknownReadContacts: [],
         lastSyncDisplay: null,
         accountReloadPending: false,
+        mailboxStarted: false,
         hardSyncing: false,
         googleReconnectPromptOpen: false,
         googleReconnectPromptDismissed: false,
@@ -16813,7 +16854,7 @@ if (!headers_sent()) {
       }
 
       function prefetchCanRun() {
-        return !state.prefetchAuthStopped &&
+        return state.mailboxStarted && !state.prefetchAuthStopped &&
           state.prefetchPauseReasons.size === 0 &&
           prefetchConnectionAllowsBackground() &&
           !state.hardSyncing &&
@@ -17045,6 +17086,7 @@ if (!headers_sent()) {
 
       async function scheduleVisibleMessagePrefetch(generation, attempt = 0) {
         if (
+          !state.mailboxStarted ||
           generation !== state.prefetchGeneration ||
           state.prefetchAuthStopped ||
           !prefetchConnectionAllowsBackground() ||
@@ -17692,6 +17734,7 @@ if (!headers_sent()) {
       }
 
       async function hardResync(spinnerText = 'Re-synch in progress') {
+        if (!state.mailboxStarted) return startApplicationMailbox(true);
         if (state.hardSyncing) return;
         state.hardSyncing = true;
         showSpinner(spinnerText);
@@ -17755,11 +17798,80 @@ if (!headers_sent()) {
         $('#folderCleanupDate').disabled = busy || !ready || $('#folderCleanupRange').value !== 'custom';
         $('#folderCleanupDelete').disabled = busy || !ready;
         $$('#folderCleanupModal [data-bs-dismiss="modal"]').forEach(button => { button.disabled = busy; });
+        const cancellable = context?.phase === 'preview' || context?.phase === 'execute';
+        $('#folderCleanupCancel').disabled = busy && (!cancellable || context.cancelRequested);
+        $('#folderCleanupCancel').textContent = busy ? (context.cancelRequested ? 'Cancelling...' : 'Cancel cleanup') : 'Cancel';
+      }
+
+      function updateFolderCleanupProgress(context) {
+        if (folderCleanupContext !== context) return;
+        const job = context.job;
+        const active = context.busy && (context.phase === 'preview' || context.phase === 'execute');
+        $('#folderCleanupActivity').classList.toggle('d-none', !job && !active);
+        $('#folderCleanupSpinner').classList.toggle('d-none', !active);
+        const bar = $('#folderCleanupProgressBar');
+        bar.classList.toggle('progress-bar-striped', active && !job);
+        bar.classList.toggle('progress-bar-animated', active && !job);
+        if (!job) {
+          bar.style.width = active ? '100%' : '0%';
+          bar.textContent = '';
+          bar.removeAttribute('aria-valuenow');
+          bar.setAttribute('aria-valuetext', active ? 'Checking matching messages' : 'Not started');
+          $('#folderCleanupCount').textContent = active ? 'Checking matching messages...' : '';
+          $('#folderCleanupEstimate').textContent = active ? 'The total and finishing estimate will appear after the folder check.' : '';
+          return;
+        }
+        const count = Math.max(0, Number(job.count) || 0);
+        const processed = Math.min(count, Math.max(0, Number(job.processed) || 0));
+        const percent = count && processed < count ? Math.min(99, Math.round(processed / count * 100)) : 100;
+        bar.style.width = `${percent}%`;
+        bar.textContent = `${percent}%`;
+        bar.setAttribute('aria-valuenow', String(percent));
+        bar.setAttribute('aria-valuetext', `${processed} of ${count} messages processed`);
+        $('#folderCleanupCount').textContent = `${processed} of ${count} messages processed (${Number(job.affected) || 0} ${job.permanent ? 'deleted' : 'moved to Trash'}${job.skipped ? `, ${job.skipped} skipped` : ''}).`;
+        let estimate = '';
+        if (active && context.phase === 'execute' && processed < count && !context.cancelRequested) {
+          const completed = processed - context.progressStartedProcessed;
+          const elapsed = context.lastBatchAt - context.progressStartedAt;
+          if (completed > 0 && elapsed > 0) {
+            const finishAt = context.lastBatchAt + (count - processed) * elapsed / completed;
+            const remainingSeconds = Math.ceil((finishAt - Date.now()) / 1000);
+            if (remainingSeconds > 0) {
+              const duration = remainingSeconds >= 60
+                ? `${Math.ceil(remainingSeconds / 60)} min`
+                : `${remainingSeconds} sec`;
+              const finishTime = new Intl.DateTimeFormat(undefined, {hour: 'numeric', minute: '2-digit', second: '2-digit'}).format(new Date(finishAt));
+              estimate = `Estimated finish: ${finishTime} (about ${duration} remaining). Mail server speed can change.`;
+            } else {
+              estimate = 'This batch is taking longer than estimated. The estimate will update when it finishes.';
+            }
+          } else {
+            estimate = 'Estimating finishing time after the first completed batch...';
+          }
+        } else if (active && context.cancelRequested) {
+          estimate = 'Waiting for the current request to finish safely; no further batches will start.';
+        }
+        $('#folderCleanupEstimate').textContent = estimate;
+      }
+
+      function cancelFolderCleanup() {
+        const context = folderCleanupContext;
+        if (!context?.busy) {
+          folderCleanupModal.hide();
+          return;
+        }
+        if (context.cancelRequested || !['preview', 'execute'].includes(context.phase)) return;
+        context.cancelRequested = true;
+        $('#folderCleanupProgress').textContent = context.phase === 'preview'
+          ? 'Cancelling after the folder check finishes. No messages will be deleted.'
+          : 'Cancelling after the current batch finishes. Messages already processed will remain changed.';
+        updateFolderCleanupControls();
+        updateFolderCleanupProgress(context);
       }
 
       async function openFolderCleanup(folder) {
         if (folderCleanupContext?.busy || folderCleanupClosing) return;
-        const context = {folder: String(folder.id), name: folder.name, accountId: String(initialSettings.account_id), busy: false, options: null, job: null};
+        const context = {folder: String(folder.id), name: folder.name, accountId: String(initialSettings.account_id), busy: false, options: null, job: null, phase: '', cancelRequested: false};
         folderCleanupContext = context;
         $('#folderCleanupFolder').textContent = context.name;
         $('#folderCleanupRange').value = 'week';
@@ -17768,6 +17880,7 @@ if (!headers_sent()) {
         $('#folderCleanupDescription').textContent = 'The selected folder is checked on the mail server, including all pages.';
         $('#folderCleanupProgress').textContent = 'Loading dates...';
         updateFolderCleanupControls();
+        updateFolderCleanupProgress(context);
         folderCleanupModal.show();
         try {
           const result = await api('folder_cleanup_options', {folder: context.folder}, {spinner: false});
@@ -17806,7 +17919,10 @@ if (!headers_sent()) {
           return;
         }
         context.busy = true;
+        context.cancelRequested = false;
+        context.phase = context.job ? 'confirm' : 'preview';
         updateFolderCleanupControls();
+        updateFolderCleanupProgress(context);
         pausePrefetch('folder-cleanup', true);
         let attemptedExecution = false;
         try {
@@ -17815,27 +17931,58 @@ if (!headers_sent()) {
             context.job = (await api('folder_cleanup_preview', {folder: context.folder, mode, date}, {spinner: false})).cleanup;
           }
           const job = context.job;
+          if (context.cancelRequested) {
+            context.phase = 'paused';
+            $('#folderCleanupProgress').textContent = 'Cancelled before deleting any messages. Press Delete to confirm this checked selection.';
+            if (!job.count) context.job = null;
+            return;
+          }
           if (!job.count) {
             $('#folderCleanupProgress').textContent = 'No messages match this selection.';
             context.job = null;
             return;
           }
+          context.phase = 'confirm';
+          updateFolderCleanupControls();
+          updateFolderCleanupProgress(context);
           const scope = job.until ? `dated through ${formatCleanupDate(job.until)} included` : 'of any date';
           const action = job.permanent ? 'permanently deleted' : 'moved to Trash';
+          const remaining = Math.max(0, job.count - (Number(job.processed) || 0));
           const confirmation = await swalTypedConfirmation(
             'Delete messages?',
-            `${job.count} messages ${scope} in "${context.name}" will be ${action}. Only this checked selection is processed.`,
+            `${remaining} ${job.processed ? 'remaining ' : ''}messages ${scope} in "${context.name}" will be ${action}. Only this checked selection is processed.`,
             'Delete',
             'YES DELETE ALL'
           );
-          if (confirmation === null) return;
+          if (confirmation === null) {
+            context.phase = 'paused';
+            $('#folderCleanupProgress').textContent = 'Deletion cancelled. Press Delete to confirm this checked selection.';
+            return;
+          }
           if (String(initialSettings.account_id) !== context.accountId) throw new Error('The email account changed. Reopen the folder cleanup.');
-          do {
+          context.phase = 'execute';
+          context.progressStartedAt = Date.now();
+          context.progressStartedProcessed = Number(job.processed) || 0;
+          context.lastBatchAt = context.progressStartedAt;
+          context.progressTimer = setInterval(() => updateFolderCleanupProgress(context), 1000);
+          updateFolderCleanupControls();
+          while (!job.complete && !context.cancelRequested) {
             $('#folderCleanupProgress').textContent = `Processing ${job.processed || 0} of ${job.count} messages...`;
+            updateFolderCleanupProgress(context);
             attemptedExecution = true;
+            // Finish an in-flight destructive request even after Cancel: aborting
+            // its response would leave the last processed count uncertain.
             const result = await api('folder_cleanup_execute', {token: job.token, confirmation}, {spinner: false});
             Object.assign(job, result.cleanup);
-          } while (!job.complete);
+            context.lastBatchAt = Date.now();
+            updateFolderCleanupProgress(context);
+          }
+          if (context.cancelRequested && !job.complete) {
+            context.phase = 'paused';
+            $('#folderCleanupProgress').textContent = `Cancelled: ${job.processed || 0} of ${job.count} messages processed; ${job.affected || 0} messages ${action}. Messages already processed will remain changed. Press Delete to resume the same checked selection.`;
+            return;
+          }
+          context.phase = 'complete';
           $('#folderCleanupProgress').textContent = `Completed: ${job.affected || 0} messages ${action}.`;
           context.job = null;
           context.busy = false;
@@ -17843,14 +17990,18 @@ if (!headers_sent()) {
           folderCleanupModal.hide();
           toast(`${job.affected || 0} messages ${action}.`);
         } catch (error) {
+          context.phase = 'error';
           const needsPreview = /preview (?:the cleanup|it) again|preview expired|account changed/i.test(error.message);
           if (!attemptedExecution || needsPreview) context.job = null;
           $('#folderCleanupProgress').textContent = attemptedExecution
             ? `${error.message} Some messages may already have been processed. Press Delete to ${needsPreview ? 'check the remaining messages again' : 'retry the same checked selection'}.`
             : error.message;
         } finally {
+          clearInterval(context.progressTimer);
+          context.progressTimer = null;
           context.busy = false;
           updateFolderCleanupControls();
+          updateFolderCleanupProgress(context);
           resumePrefetch('folder-cleanup');
           if (attemptedExecution) {
             invalidateMessageCacheForFolder(context.folder);
@@ -17867,9 +18018,16 @@ if (!headers_sent()) {
       }
 
       $('#folderCleanupDelete').addEventListener('click', runFolderCleanup);
+      $('#folderCleanupCancel').addEventListener('click', cancelFolderCleanup);
       for (const selector of ['#folderCleanupRange', '#folderCleanupDate']) {
         $(selector).addEventListener('change', () => {
-          if (folderCleanupContext) folderCleanupContext.job = null;
+          if (folderCleanupContext?.busy) return;
+          if (folderCleanupContext) {
+            folderCleanupContext.job = null;
+            folderCleanupContext.phase = '';
+            folderCleanupContext.cancelRequested = false;
+            updateFolderCleanupProgress(folderCleanupContext);
+          }
           $('#folderCleanupProgress').textContent = 'Press Delete to check the matching messages and confirm.';
           updateFolderCleanupControls();
         });
@@ -18060,6 +18218,7 @@ if (!headers_sent()) {
 
       async function pollFolderStatus() {
         if (
+          !state.mailboxStarted ||
           document.hidden ||
           state.folderStatusPolling ||
           state.hardSyncing ||
@@ -19252,6 +19411,7 @@ if (!headers_sent()) {
       }
 
       async function flushActionQueue(silent = true) {
+        if (silent && !state.mailboxStarted) return null;
         if (state.queueFlushing || state.queueUndoing) return null;
         state.queueFlushing = true;
         try {
@@ -23566,7 +23726,7 @@ if (!headers_sent()) {
       document.addEventListener('hidden.bs.modal', () => {
         if (localPsePendingDisplay && !$('.modal.show')) showLocalPseFiles();
       });
-      window.pseFileLaunch?.connect(queueLocalPseFiles);
+      const fileLaunchReady = window.pseFileLaunch?.connect(queueLocalPseFiles) || Promise.resolve();
 
       function applyPseRecord(record) {
         if (!record || record.format !== 'PSE/1' || !record.message) {
@@ -25263,6 +25423,61 @@ if (!headers_sent()) {
         }
       });
 
+      /* PSE_MAILBOX_STARTUP_START */
+      let mailboxStartupPromise = null;
+      let applicationUpdateStartupScheduled = false;
+
+      function scheduleApplicationUpdateStartup() {
+        if (applicationUpdateStartupScheduled) return;
+        applicationUpdateStartupScheduled = true;
+        window.setTimeout(() => {
+          if (!state.mailboxStarted && $('.modal.show')) {
+            applicationUpdateStartupScheduled = false;
+            return;
+          }
+          showAppliedUpdateNotice();
+          checkApplicationUpdate(false, true);
+        }, 700);
+      }
+
+      async function startApplicationMailbox(hardRefresh = false) {
+        if (mailboxStartupPromise) return mailboxStartupPromise;
+        if (state.mailboxStarted && !hardRefresh) return;
+        state.mailboxStarted = true;
+        try {
+          const url = new URL(location.href);
+          if (url.searchParams.has('open_pse')) {
+            url.searchParams.delete('open_pse');
+            history.replaceState({}, '', url.pathname + url.search + url.hash);
+          }
+        } catch (ignore) {}
+        $('#fileLaunchMailboxHint')?.classList.add('d-none');
+        scheduleApplicationUpdateStartup();
+        mailboxStartupPromise = (async () => {
+          await loadFolders(true, true, hardRefresh);
+          window.setTimeout(pollFolderStatus, 5000);
+        })();
+        try {
+          await mailboxStartupPromise;
+        } finally {
+          mailboxStartupPromise = null;
+        }
+      }
+
+      async function initialiseApplicationStartup() {
+        // Restore sign-in launch handles and display the local file before any mail work.
+        await fileLaunchReady;
+        if (!state.mailboxStarted && window.pseFileLaunch?.isFileLaunch()) {
+          $('#fileLaunchMailboxHint')?.classList.remove('d-none');
+          $('#lastSyncStatus').textContent = 'Local file — mailbox sync paused';
+          $('#foldersList').innerHTML = '<div class="pse-empty"><div>Choose Open mailbox to load your folders.</div></div>';
+          $('#messagesList').innerHTML = '<div class="pse-empty"><div>Mailbox messages have not been loaded in this file window.</div></div>';
+          return;
+        }
+        await startApplicationMailbox();
+      }
+      /* PSE_MAILBOX_STARTUP_END */
+
       applySettingsToForm(serverSettings);
       ['to', 'cc', 'bcc'].forEach(field => renderRecipientChips(field));
       setupResizers();
@@ -25270,12 +25485,10 @@ if (!headers_sent()) {
       refreshSavedCount(false);
       loadMailboxPreferences();
       updateQueueStat();
-      showAppliedUpdateNotice();
       showAccountSwitchedNotice();
-      window.setTimeout(() => checkApplicationUpdate(false, true), 700);
-      loadFolders().then(() => {
-        window.setTimeout(pollFolderStatus, 5000);
-      });
+      $('#startMailboxFromFile').addEventListener('click', () => startApplicationMailbox().catch(handleError));
+      initialiseApplicationStartup().catch(handleError);
+      installMailboxBackgroundHandlers();
       if (new URLSearchParams(location.search).get('google_oauth') === 'success') {
         const cleanUrl = new URL(location.href);
         cleanUrl.searchParams.delete('google_oauth');
@@ -25285,57 +25498,69 @@ if (!headers_sent()) {
           await openSettings();
         }, 250);
       }
-      const recordActivity = () => {
-        state.lastActivity = Date.now();
-      };
-      ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(eventName => {
-        document.addEventListener(eventName, recordActivity, {passive: true});
-      });
-      window.addEventListener('offline', () => {
-        pausePrefetch('network', true);
-      });
-      window.addEventListener('online', () => {
-        resumePrefetch('network');
-        scheduleVisibleMessagePrefetch(state.prefetchGeneration);
-      });
-      const networkConnection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-      networkConnection?.addEventListener?.('change', () => {
-        if (prefetchConnectionAllowsBackground()) {
-          resumePrefetch('network-policy');
+      /* PSE_MAILBOX_BACKGROUND_START */
+      function installMailboxBackgroundHandlers() {
+        const recordActivity = () => {
+          state.lastActivity = Date.now();
+        };
+        ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(eventName => {
+          document.addEventListener(eventName, recordActivity, {passive: true});
+        });
+        window.addEventListener('offline', () => {
+          pausePrefetch('network', true);
+        });
+        window.addEventListener('online', () => {
+          if (!state.mailboxStarted) return;
+          resumePrefetch('network');
           scheduleVisibleMessagePrefetch(state.prefetchGeneration);
-        } else {
-          pausePrefetch('network-policy', true);
-        }
-      });
-      if (navigator.onLine === false) pausePrefetch('network');
-      if (!prefetchConnectionAllowsBackground()) pausePrefetch('network-policy');
-      window.addEventListener('beforeunload', () => {
-        saveComposeBeforeBrowserClose();
-      });
-      window.addEventListener('pagehide', () => {
-        saveComposeBeforeBrowserClose();
-        interruptPrefetchRequests();
-        fetch('?ajax=handle_queue', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-PSE-CSRF': csrf
-          },
-          body: '{}',
-          keepalive: true
-        }).catch(() => {});
-      });
-      setInterval(() => {
-        flushActionQueue(true);
-      }, 60000);
-      setInterval(pollFolderStatus, mailboxCheckIntervalMs());
-      setInterval(refreshLastSyncStatus, 300000);
-      document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) {
-          refreshLastSyncStatus();
-          pollFolderStatus();
-        }
-      });
+        });
+        const networkConnection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        networkConnection?.addEventListener?.('change', () => {
+          if (!state.mailboxStarted) return;
+          if (prefetchConnectionAllowsBackground()) {
+            resumePrefetch('network-policy');
+            scheduleVisibleMessagePrefetch(state.prefetchGeneration);
+          } else {
+            pausePrefetch('network-policy', true);
+          }
+        });
+        if (navigator.onLine === false) pausePrefetch('network');
+        if (!prefetchConnectionAllowsBackground()) pausePrefetch('network-policy');
+        window.addEventListener('beforeunload', () => {
+          saveComposeBeforeBrowserClose();
+        });
+        window.addEventListener('pagehide', () => {
+          saveComposeBeforeBrowserClose();
+          interruptPrefetchRequests();
+          if (!state.mailboxStarted) return;
+          fetch('?ajax=handle_queue', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-PSE-CSRF': csrf
+            },
+            body: '{}',
+            keepalive: true
+          }).catch(() => {});
+        });
+        setInterval(() => {
+          if (state.mailboxStarted) flushActionQueue(true);
+        }, 60000);
+        setInterval(() => {
+          if (state.mailboxStarted) pollFolderStatus();
+        }, mailboxCheckIntervalMs());
+        setInterval(refreshLastSyncStatus, 300000);
+        document.addEventListener('visibilitychange', () => {
+          if (state.mailboxStarted && !document.hidden) {
+            refreshLastSyncStatus();
+            pollFolderStatus();
+          }
+        });
+        document.addEventListener('hidden.bs.modal', () => {
+          if (!state.mailboxStarted && !$('.modal.show')) scheduleApplicationUpdateStartup();
+        });
+      }
+      /* PSE_MAILBOX_BACKGROUND_END */
     })();
   </script>
 <?php endif; ?>

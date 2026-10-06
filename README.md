@@ -4,6 +4,11 @@ Single-file PHP email client for IMAP/SMTP and Google OAuth2/Gmail API accounts.
 
 Deploy `index.php` on your PHP web server and open it to configure the application. The file serves its own PWA manifest, service worker, and embedded icons. PHP 7.4+ and OpenSSL/JSON are required; regular mail accounts also require PHP IMAP. Gmail needs cURL or HTTPS URL access. Downloading attachment ZIPs requires PHP ZIP.
 
+## Changes in 2.18.2
+
+- Installed PWA file launches focus an existing app window where the browser supports it. A new file-launch window opens the local email directly, with mailbox synchronization paused until **Open mailbox** or **Refresh** is chosen. See [Windows setup](README-Windows-PSE.md) for refreshing an older installed manifest.
+- Folder cleanup displays a spinner, progress bar, processed counts, estimated finishing time and Cancel. Cancel waits for the current batch, then stops further batches; already processed messages stay changed. Press Delete and confirm again to resume the remaining checked selection. The estimate starts after the first completed batch and adapts to mail-server speed.
+
 ## Changes in 2.18.1
 
 - Sent-folder rows show all To recipients, with Cc/Bcc fallback when there are no To recipients. Sender information remains available for replies and sender filtering. Sent calendar entries use recipients too; old Sent summary caches refresh automatically.
@@ -38,7 +43,10 @@ php -l index.php
 php tests/sent-recipients.php
 php tests/folder-cleanup.php
 php tests/update-changelog.php
+php tests/pwa-launch-manifest.php
+php tests/pse-file-launch-server.php
 node tests/folder-cleanup-ui.cjs
+node tests/pse-file-launch.cjs
 node tests/update-changelog-ui.cjs
 python tests/icon-assets.py
 python tests/changelog-generator.py

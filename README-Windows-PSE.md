@@ -21,6 +21,14 @@ The browser must install PSE as an app for operating-system file handling. A des
 
 Choose the **installed PSE application** in this list. Choosing the generic Chrome or Edge browser does not pass the local file to the web app's file handler. File associations must be selected through Windows; PHP on the server cannot silently change them.
 
+## Open files in the existing app window
+
+PSE asks supported desktop Chrome and Edge installations to focus an already-open PSE window and deliver the file there without reloading it. Selecting several `.pse` files together sends them to one app launch. If several PSE windows are open, the browser chooses the most recently used window. The existing window must belong to the same installed app URL and browser profile.
+
+The browser may still create a window when none is open, when its installed manifest is outdated, or when launch reuse is unsupported. A window launched to open a `.pse` file goes straight to that file and skips the initial inbox synchronization and automatic mailbox refresh. Opening PSE normally still starts the mailbox as before. You can request a mailbox refresh yourself when you need current mail.
+
+After updating PSE, open the installed app once, close its windows, and try opening a file with a PSE window already open. Browsers can retain an older installed manifest. If opening the file still creates another window, reinstall the app from the same updated URL using step 4 above, keeping browser/site data. Reinstallation may ask for file-opening permission again. A fresh file window still uses the faster file-opening path even when window reuse is unavailable.
+
 ## Give every `.pse` file the black cat icon
 
 The manifest declares the new black cat as the `.pse` document icon. The same cat is now the default PSE application icon. An existing custom uploaded application icon is preserved. To also replace that custom app icon, download `index.php?pwa=cat-icon&size=256`, upload it in PSE's application-icon settings, then reinstall the PWA if Windows still displays its previous icon.
@@ -93,6 +101,7 @@ Keep the ICO at that path. If Explorer retains an old cached icon, sign out of W
 
 - [Microsoft Edge: Handle files in a PWA](https://learn.microsoft.com/en-us/microsoft-edge/progressive-web-apps/how-to/handle-files)
 - [Chrome: Let installed web applications be file handlers](https://developer.chrome.com/docs/capabilities/web-apis/file-handling)
+- [Chrome: Launch Handler API](https://developer.chrome.com/docs/web-platform/launch-handler)
 - [Microsoft: Change default apps in Windows](https://support.microsoft.com/en-gb/windows/apps/change-default-apps-in-windows)
 - [Microsoft: Assign a custom icon to a file type](https://learn.microsoft.com/en-us/windows/win32/shell/how-to-assign-a-custom-icon-to-a-file-type)
 - [Microsoft: Query the effective file association](https://learn.microsoft.com/en-us/windows/win32/api/shlwapi/nf-shlwapi-assocquerystringw)
