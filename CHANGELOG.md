@@ -9,6 +9,9 @@ Release notes are shown when checking for an update and after an update is insta
 - Expired Gmail history checkpoints rebuild the requested cached views safely. Interrupted, rate-limited or failed requests preserve the checkpoint and available cached messages for retry.
 - Synchronization coordinates concurrent requests, keeps accounts isolated, and rejects stale cache writes. Local mailbox actions invalidate or update the corresponding cached messages.
 
+### Merged changes
+- 2026-10-06: [#3](https://github.com/ziobit/PSE-Email-Client/pull/3) — Release 2\.18\.3: incremental Gmail sync using historyId. Commit [67f3814](https://github.com/ziobit/PSE-Email-Client/commit/67f3814f059b21a71f0bb28d604d3ef79763775b). <!-- pse-pr:ziobit/PSE-Email-Client#3 -->
+
 ## 2.18.2 (2026-10-06)
 
 - Opening a `.pse` file requests the existing PWA window without reloading it on browsers supporting the Launch Handler API. Multiple files opened together share one window.
