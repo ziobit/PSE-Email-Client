@@ -17,3 +17,7 @@ Release notes are shown when checking for an update and after an update is insta
 - Cleanup normally moves messages to Trash. Cleaning Trash, or an IMAP account without a detected Trash folder, deletes permanently; the confirmation explains which operation applies.
 - Added black-cat application and document icons, a Windows `.ico`, portable `.pse` email and draft files, and local-file opening with Reply, Reply all, Forward, and Edit copy.
 - Added Windows app installation, `.pse` association, and icon setup instructions in `README-Windows-PSE.md`.
+
+### Merged changes
+- 2026-10-06: [#1](https://github.com/ziobit/PSE-Email-Client/pull/1) — Release 2\.18\.1: Sent recipients, folder cleanup, PSE files and update changelog. Commit [cb02eff](https://github.com/ziobit/PSE-Email-Client/commit/cb02eff140abe81ab3d5d8dc0a3d40f1893f8ee5). <!-- pse-pr:ziobit/PSE-Email-Client#1 -->
+
