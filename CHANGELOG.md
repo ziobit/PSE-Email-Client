@@ -8,6 +8,9 @@ Release notes are shown when checking for an update and after an update is insta
 - A new file-launch window goes directly to its local files. Startup folder/message syncing, queued mailbox work, polling, and message prefetch stay paused until Open mailbox or Refresh is chosen. Password sign-in preserves this behavior.
 - Folder cleanup now shows a progress bar, spinner, processed counts, estimated finish time, and Cancel. Estimates adjust after completed batches. Cancellation stops future batches after the current request finishes and preserves the remaining selection for a confirmed resume.
 
+### Merged changes
+- 2026-10-06: [#2](https://github.com/ziobit/PSE-Email-Client/pull/2) — Release 2\.18\.2: fast PSE file launches and cancellable cleanup progress. Commit [788bd22](https://github.com/ziobit/PSE-Email-Client/commit/788bd224ffc871018c9040c4db0bd738dd8c55c5). <!-- pse-pr:ziobit/PSE-Email-Client#2 -->
+
 ## 2.18.1 (2026-10-06)
 
 - Added this changelog and automatic maintenance after every merge into `main`, including GitHub merge, squash, and rebase merges.
