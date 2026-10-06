@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.18.2
+ * PSE Email (PSE), release v2.18.3
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.18.2';
+const PSE_VERSION = '2.18.3';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -869,6 +869,9 @@ function pseMailCacheFoldersFile(array $settings): string
   $filename = pseIsGmailAccount($settings) && !empty($settings['hide_useless_gmail_folders'])
     ? 'folders-gmail-filtered.json'
     : 'folders.json';
+  if (pseIsGmailAccount($settings)) {
+    $filename = substr($filename, 0, -5) . '-' . pseGmailHistoryIdentity($settings) . '.json';
+  }
   return pseMailCacheAccountDirectory($settings) . '/' . $filename;
 }
 
@@ -901,6 +904,9 @@ function pseMailCacheListFile(
   if (pseFolderIsSent($settings, $folder)) {
     $identity .= "\0sent-recipients-v1";
   }
+  if (pseIsGmailAccount($settings)) {
+    $identity .= "\0gmail-history-v1\0" . pseGmailHistoryIdentity($settings);
+  }
   return pseMailCacheAccountDirectory($settings) . '/lists/' . hash('sha256', $identity) . '.json';
 }
 
@@ -924,6 +930,9 @@ function pseMailCacheCalendarFile(
   ]);
   if (pseFolderIsSent($settings, $folder)) {
     $identity .= "\0sent-recipients-v1";
+  }
+  if (pseIsGmailAccount($settings)) {
+    $identity .= "\0gmail-history-v1\0" . pseGmailHistoryIdentity($settings);
   }
   return pseMailCacheAccountDirectory($settings) . '/calendars/' . hash('sha256', $identity) . '.json';
 }
@@ -1359,8 +1368,23 @@ function pseCachedFolders(array $settings, bool $forceRefresh = false): array
       'cache' => pseMailCacheInfo($previous, true)
     ];
   }
+  $historySync = [];
+  $historyRevision = '';
   try {
-    $folders = pseFolders($settings);
+    if (pseIsGmailAccount($settings)) {
+      $historySync = pseGmailHistorySync($settings);
+      $historyRevision = (string)($historySync['gmailHistoryRevision'] ?? '');
+      $refreshFolderIds = empty($previous) || !empty($historySync['reset']) ||
+        in_array('*', array_merge(
+          (array)($historySync['changedFolders'] ?? []),
+          (array)($historySync['countDirtyFolders'] ?? [])
+        ), true)
+        ? null
+        : pseGmailHistoryFolderChanges($historySync, (array)($previous['data'] ?? []));
+      $folders = pseGmailFolders($settings, (array)($previous['data'] ?? []), $refreshFolderIds);
+    } else {
+      $folders = pseFolders($settings);
+    }
   } catch (Throwable $error) {
     if (!empty($previous)) {
       $cache = pseMailCacheInfo($previous, true);
@@ -1377,12 +1401,174 @@ function pseCachedFolders(array $settings, bool $forceRefresh = false): array
   $changedFolders = empty($previous)
     ? []
     : pseMailCacheChangedFolders((array)$previous['data'], $folders);
+  if (!empty($historySync)) {
+    $changedFolders = array_values(array_unique(array_merge(
+      $changedFolders,
+      pseGmailHistoryFolderChanges($historySync, $folders)
+    )));
+  }
   // Keep cached folder lists even when server counts change. They remain the fast,
   // cache-first view until the user explicitly refreshes the current folder.
-  $envelope = pseMailCacheEnvelopeWrite($file, $folders, ['freshFromServer' => true]);
+  $meta = array_merge(
+    ['freshFromServer' => true],
+    empty($historySync) ? [] : ['gmailHistoryId' => (string)($historySync['historyId'] ?? '')]
+  );
+  $folderRevisions = empty($historySync) ? [] : pseGmailHistoryFolderRevisionMap($historySync, $folders);
+  $envelope = empty($historySync)
+    ? pseMailCacheEnvelopeWrite($file, $folders, $meta)
+    : pseGmailHistoryWriteDerived($settings, '', $historyRevision, $file, $folders, $meta);
+  if (empty($envelope)) {
+    throw new RuntimeException('The mailbox changed during this refresh. Refresh the folders again.');
+  }
+  if (!empty($historySync)) {
+    pseGmailHistoryAcknowledgeFolderCounts(
+      $settings,
+      (string)($historySync['historyId'] ?? ''),
+      $refreshFolderIds === null ? ['*'] : $refreshFolderIds,
+      $historyRevision
+    );
+  }
+  return array_merge([
+    'folders' => $folders,
+    'changedFolders' => $changedFolders,
+    'cache' => pseMailCacheInfo($envelope, false)
+  ], empty($historySync) ? [] : [
+    'gmailHistorySynced' => true,
+    'historyId' => (string)($historySync['historyId'] ?? ''),
+    'gmailFolderRevisions' => $folderRevisions,
+    'syncReset' => !empty($historySync['reset'])
+  ]);
+}
+
+function pseGmailHistoryFolderRevisionMap(array $historySync, array $folders): array
+{
+  $revisions = [];
+  $wildcard = (string)($historySync['gmailWildcardRevision'] ?? '');
+  $tokens = (array)($historySync['gmailFolderRevisionTokens'] ?? []);
+  foreach ($folders as $folder) {
+    if (!is_array($folder)) continue;
+    $id = (string)($folder['id'] ?? '');
+    if ($id !== '') $revisions[$id] = hash('sha256', $wildcard . "\0" . (string)($tokens[$id] ?? ''));
+  }
+  return $revisions;
+}
+
+function pseGmailHistoryFolderChanges(array $historySync, array $folders): array
+{
+  $changed = array_values(array_unique(array_filter(array_map(
+    'strval',
+    array_merge(
+      (array)($historySync['changedFolders'] ?? []),
+      (array)($historySync['countDirtyFolders'] ?? [])
+    )
+  ))));
+  if (!empty($historySync['reset']) || in_array('*', $changed, true)) {
+    return array_values(array_unique(array_filter(array_map(function (array $folder): string {
+      return (string)($folder['id'] ?? '');
+    }, array_filter($folders, 'is_array')))));
+  }
+  return $changed;
+}
+
+function pseCachedGmailFolderStatus(
+  array $settings,
+  array $previous,
+  array $requestedFolderIds
+): array {
+  $file = pseMailCacheFoldersFile($settings);
+  $folders = array_values((array)$previous['data']);
+  $knownFolders = [];
+  foreach ($folders as $index => $folder) {
+    if (is_array($folder) && (string)($folder['id'] ?? '') !== '') {
+      $knownFolders[(string)$folder['id']] = $index;
+    }
+  }
+  $requested = [];
+  foreach ($requestedFolderIds as $folderId) {
+    $folderId = (string)$folderId;
+    if (isset($knownFolders[$folderId])) $requested[$folderId] = true;
+  }
+
+  try {
+    $historySync = pseGmailHistorySync($settings);
+    $historyRevision = (string)($historySync['gmailHistoryRevision'] ?? '');
+    $changedFolders = pseGmailHistoryFolderChanges($historySync, $folders);
+    $acknowledgedFolders = $changedFolders;
+    $ignoredLabels = pseGmailIgnoredLabels();
+    $changedFolders = array_values(array_filter($changedFolders, function (string $id) use ($knownFolders, $ignoredLabels): bool {
+      return isset($knownFolders[$id]) || !in_array($id, $ignoredLabels, true);
+    }));
+    $refreshAll = !empty($historySync['reset']) ||
+      in_array('*', array_merge(
+        (array)($historySync['changedFolders'] ?? []),
+        (array)($historySync['countDirtyFolders'] ?? [])
+      ), true);
+    $refreshDefinitions = $refreshAll;
+    foreach ($changedFolders as $folderId) {
+      if (!isset($knownFolders[$folderId])) $refreshDefinitions = true;
+    }
+    if ($refreshDefinitions) {
+      $folders = pseGmailFolders($settings, $folders, $refreshAll ? null : $changedFolders);
+      $changedFolders = array_values(array_unique(array_merge(
+        $changedFolders,
+        pseMailCacheChangedFolders((array)$previous['data'], $folders),
+        pseGmailHistoryFolderChanges($historySync, $folders)
+      )));
+    } else {
+      foreach ($changedFolders as $folderId) {
+        try {
+          $detail = pseGoogleApi($settings, 'GET', 'labels/' . rawurlencode($folderId));
+        } catch (RuntimeException $error) {
+          if ($error->getCode() !== 404) throw $error;
+          // A label may itself have been deleted. Rediscover names and refresh only
+          // affected visible labels rather than retrying the missing label forever.
+          $folders = pseGmailFolders($settings, $folders, $changedFolders);
+          $changedFolders = array_values(array_unique(array_merge(
+            $changedFolders,
+            pseMailCacheChangedFolders((array)$previous['data'], $folders)
+          )));
+          break;
+        }
+        $index = $knownFolders[$folderId];
+        $folders[$index]['messages'] = max(0, (int)($detail['messagesTotal'] ?? 0));
+        $folders[$index]['unseen'] = max(0, (int)($detail['messagesUnread'] ?? 0));
+      }
+    }
+  } catch (Throwable $error) {
+    $cache = pseMailCacheInfo($previous, true);
+    $cache['refreshError'] = $error->getMessage();
+    $cache['googleReconnectRequired'] = $error instanceof PseGoogleReconnectRequiredException;
+    return [
+      'folders' => (array)$previous['data'],
+      'changedFolders' => [],
+      'checkedFolders' => array_keys($requested),
+      'cache' => $cache
+    ];
+  }
+
+  // A history checkpoint validates unchanged counts without fetching every label.
+  $folderRevisions = pseGmailHistoryFolderRevisionMap($historySync, $folders);
+  $envelope = pseGmailHistoryWriteDerived($settings, '', $historyRevision, $file, $folders, [
+    'serverSyncedAt' => (int)($historySync['syncedAt'] ?? time()),
+    'gmailHistoryId' => (string)($historySync['historyId'] ?? '')
+  ]);
+  if (empty($envelope)) {
+    throw new RuntimeException('The mailbox changed during this refresh. Check the folders again.');
+  }
+  pseGmailHistoryAcknowledgeFolderCounts(
+    $settings,
+    (string)($historySync['historyId'] ?? ''),
+    $refreshAll ? ['*'] : array_values(array_unique(array_merge($acknowledgedFolders, $changedFolders))),
+    $historyRevision
+  );
   return [
     'folders' => $folders,
     'changedFolders' => $changedFolders,
+    'checkedFolders' => array_values(array_unique(array_merge(array_keys($requested), $changedFolders))),
+    'gmailHistorySynced' => true,
+    'historyId' => (string)($historySync['historyId'] ?? ''),
+    'gmailFolderRevisions' => $folderRevisions,
+    'syncReset' => !empty($historySync['reset']),
     'cache' => pseMailCacheInfo($envelope, false)
   ];
 }
@@ -1393,6 +1579,9 @@ function pseCachedFolderStatus(array $settings, array $requestedFolderIds): arra
   $previous = pseMailCacheEnvelopeRead($file);
   if (empty($previous)) {
     return pseCachedFolders($settings, true);
+  }
+  if (pseIsGmailAccount($settings)) {
+    return pseCachedGmailFolderStatus($settings, $previous, $requestedFolderIds);
   }
 
   $folders = array_values((array)$previous['data']);
@@ -1518,7 +1707,48 @@ function pseCachedMessageList(
     $startDate
   );
   $previous = pseMailCacheEnvelopeRead($file);
-  if (!$forceRefresh && !empty($previous)) {
+  $gmail = pseIsGmailAccount($settings);
+  $previousCurrent = !empty($previous) && (!$gmail || (
+    (string)($previous['gmailHistoryRevision'] ?? '') !== '' &&
+    (string)$previous['gmailHistoryRevision'] === pseGmailHistoryRevision($settings, $folder)
+  ));
+  $historySync = [];
+  if ($gmail && ($forceRefresh || (!$previousCurrent && !$cacheOnly))) {
+    try {
+      $historySync = pseGmailHistorySync($settings);
+    } catch (Throwable $error) {
+      if (empty($previous)) throw $error;
+      $cache = pseMailCacheInfo($previous, true);
+      $cache['refreshError'] = $error->getMessage();
+      $cache['googleReconnectRequired'] = $error instanceof PseGoogleReconnectRequiredException;
+      return ['data' => $previous['data'], 'cache' => $cache, 'cacheMiss' => false];
+    }
+    // History removes affected pages. A page that survives is already current.
+    $validated = pseGmailHistoryWithLock($settings, function () use ($settings, $folder, $file, $historySync): array {
+      $cached = pseMailCacheEnvelopeRead($file);
+      if (
+        empty($cached) ||
+        (string)($cached['gmailHistoryRevision'] ?? '') === '' ||
+        (string)$cached['gmailHistoryRevision'] !== pseGmailHistoryRevision($settings, $folder)
+      ) {
+        return [];
+      }
+      $cached['serverSyncedAt'] = (int)($historySync['syncedAt'] ?? time());
+      $cached['serverSyncedAtIso'] = gmdate('c', $cached['serverSyncedAt']);
+      pseWriteJson($file, $cached);
+      return $cached;
+    });
+    if (!empty($validated)) {
+      return [
+        'data' => $validated['data'],
+        'cache' => pseMailCacheInfo($validated, true),
+        'cacheMiss' => false,
+        'gmailHistorySynced' => true,
+        'historyId' => (string)($historySync['historyId'] ?? '')
+      ];
+    }
+  }
+  if (!$forceRefresh && $previousCurrent) {
     return [
       'data' => $previous['data'],
       'cache' => pseMailCacheInfo($previous, true),
@@ -1540,6 +1770,7 @@ function pseCachedMessageList(
   $cachedAttachmentCounts = $needAttachmentCounts
     ? pseMailCacheAttachmentCounts($settings, $folder)
     : [];
+  $historyRevision = $gmail ? pseGmailHistoryRevision($settings, $folder) : '';
   try {
     $data = pseMessageList(
       $settings,
@@ -1598,10 +1829,10 @@ function pseCachedMessageList(
     );
   }
   unset($data['_cacheAllFolderUids']);
-  if ($forceRefresh) {
+  if ($forceRefresh && !pseIsGmailAccount($settings)) {
     pseMailCacheInvalidateFolderLists($settings, $folder);
   }
-  $envelope = pseMailCacheEnvelopeWrite($file, $data, [
+  $meta = [
     'folder' => $folder,
     'page' => $page,
     'search' => $search,
@@ -1611,13 +1842,28 @@ function pseCachedMessageList(
     'attachmentFilter' => $attachmentFilter,
     'startDate' => $startDate,
     'freshFromServer' => true
-  ]);
-  pseMailCacheSetFolderCounts(
-    $settings,
-    $folder,
-    (int)($data['folderTotal'] ?? $data['total'] ?? 0),
-    (int)($data['folderUnseen'] ?? 0)
-  );
+  ];
+  $envelope = $gmail
+    ? pseGmailHistoryWriteDerived($settings, $folder, $historyRevision, $file, $data, $meta)
+    : pseMailCacheEnvelopeWrite($file, $data, $meta);
+  if (empty($envelope)) {
+    throw new RuntimeException('The mailbox changed during this refresh. Refresh this folder again.');
+  }
+  $updateCounts = function () use ($settings, $folder, $data): void {
+    pseMailCacheSetFolderCounts(
+      $settings,
+      $folder,
+      (int)($data['folderTotal'] ?? $data['total'] ?? 0),
+      (int)($data['folderUnseen'] ?? 0)
+    );
+  };
+  if ($gmail) {
+    pseGmailHistoryWithLock($settings, function () use ($settings, $folder, $historyRevision, $updateCounts): void {
+      if (pseGmailHistoryRevision($settings, $folder) === $historyRevision) $updateCounts();
+    });
+  } else {
+    $updateCounts();
+  }
   return [
     'data' => $data,
     'cache' => pseMailCacheInfo($envelope, false),
@@ -1627,7 +1873,7 @@ function pseCachedMessageList(
 
 function pseMailCachePublicMessage(array $message): array
 {
-  unset($message['_cacheSourceHtml'], $message['_cachePrefetched']);
+  unset($message['_cacheSourceHtml'], $message['_cachePrefetched'], $message['_cacheGmailToken']);
   return $message;
 }
 
@@ -1640,8 +1886,16 @@ function pseMailCacheReadMessageSource(
   $sourceFile = pseMailCacheMessageSourceFile($settings, $folder, $uid);
   $source = pseMailCacheEnvelopeRead($sourceFile);
   if (!empty($source)) {
+    if (pseIsGmailAccount($settings)) {
+      $token = pseGmailHistoryMessageToken($settings, $uid);
+      if ($token === '' || $token !== (string)($source['data']['_cacheGmailToken'] ?? '')) {
+        return [];
+      }
+    }
     return $source;
   }
+  // Gmail caches predating history synchronization have no generation token.
+  if (pseIsGmailAccount($settings)) return [];
   if (!$migrateLegacy) {
     return [];
   }
@@ -1844,6 +2098,29 @@ function pseWriteMessageSource(
   array $sourceMessage,
   bool $prefetched
 ): array {
+  if (pseIsGmailAccount($settings)) {
+    return pseGmailHistoryWithLock($settings, function () use (
+      $settings, $folder, $uid, $sourceMessage, $prefetched
+    ): array {
+      $token = pseGmailHistoryMessageToken($settings, $uid);
+      if ($token === '' || $token !== (string)($sourceMessage['_cacheGmailToken'] ?? '')) {
+        // Another worker synchronized while this body was being decoded. Return
+        // this response without persisting it over the newer cache generation.
+        return ['data' => $sourceMessage, 'savedAt' => time(), 'serverSyncedAt' => time()];
+      }
+      return pseWriteMessageSourceEnvelope($settings, $folder, $uid, $sourceMessage, $prefetched);
+    });
+  }
+  return pseWriteMessageSourceEnvelope($settings, $folder, $uid, $sourceMessage, $prefetched);
+}
+
+function pseWriteMessageSourceEnvelope(
+  array $settings,
+  string $folder,
+  string $uid,
+  array $sourceMessage,
+  bool $prefetched
+): array {
   if ((string)($sourceMessage['_cacheSourceHtml'] ?? '') === '') {
     $sourceMessage['_cacheSourceHtml'] = (string)($sourceMessage['html'] ?? '');
   }
@@ -1933,6 +2210,14 @@ function pseCachedMessageDetails(
       &$freshFromServer
     ): array {
       $existingSource = pseMailCacheReadMessageSource($settings, $folder, $uid);
+      if ($forceRefresh && pseIsGmailAccount($settings)) {
+        try {
+          pseGmailHistorySync($settings);
+        } catch (Throwable $error) {
+          if (empty($existingSource)) throw $error;
+          return $existingSource;
+        }
+      }
       $sourceEnvelope = $forceRefresh ? [] : $existingSource;
       $legacySentSource = !empty($sourceEnvelope) &&
         pseMailCacheFolderSpecial($settings, $folder) === 'sent' &&
@@ -1964,6 +2249,11 @@ function pseCachedMessageDetails(
 
   $renderedFile = pseMailCacheMessageRenderedFile($settings, $folder, $uid, $loadRemote);
   $renderedEnvelope = !$forceRefresh ? pseMailCacheEnvelopeRead($renderedFile) : [];
+  if (pseIsGmailAccount($settings) && !empty($renderedEnvelope) &&
+      (string)($renderedEnvelope['data']['_cacheGmailToken'] ?? '') !==
+        (string)($source['_cacheGmailToken'] ?? '')) {
+    $renderedEnvelope = [];
+  }
   if (empty($renderedEnvelope)) {
     $renderedMessage = pseMailCacheRenderMessage($settings, $folder, $uid, $source, $loadRemote);
     $renderedEnvelope = pseMailCacheEnvelopeWrite($renderedFile, $renderedMessage, [
@@ -3050,7 +3340,8 @@ function pseHttpJson(
       ('HTTP ' . (int)$response['status'])
     );
     throw new RuntimeException(
-      'Google request failed (HTTP ' . (int)$response['status'] . '): ' . $message
+      'Google request failed (HTTP ' . (int)$response['status'] . '): ' . $message,
+      (int)$response['status']
     );
   }
   return $decoded;
@@ -3324,7 +3615,74 @@ function pseGoogleApi(
   for ($attempt = 0; $attempt < 2; $attempt++) {
     $token = pseGoogleAccessToken($settings, $attempt === 1);
     try {
-      return pseHttpJson($method, $url, ['Authorization: Bearer ' . $token], $data);
+      $response = pseHttpJson($method, $url, ['Authorization: Bearer ' . $token], $data);
+      if (strtoupper($method) !== 'GET') {
+        // Successful local writes invalidate their old payloads immediately. The
+        // saved history checkpoint stays unchanged so Gmail supplies every change.
+        try {
+          (function () use ($settings, $method, $path, $data, $response): void {
+            $ids = [];
+            $remember = function ($id) use (&$ids): void {
+              $id = (string)$id;
+              if (preg_match('/^[a-zA-Z0-9_-]+$/', $id)) $ids[$id] = $id;
+            };
+            $normalizedPath = trim($path, '/');
+            if (preg_match('~^messages/([^/]+)/(?:modify|trash|untrash)$~', $normalizedPath, $match) ||
+              (strtoupper($method) === 'DELETE' && preg_match('~^messages/([^/]+)$~', $normalizedPath, $match))) {
+              $remember(rawurldecode($match[1]));
+            }
+            foreach ((array)($data['ids'] ?? []) as $id) $remember($id);
+            if (strpos($normalizedPath, 'messages/') === 0 || $normalizedPath === 'drafts/send') {
+              $remember($response['id'] ?? '');
+            }
+            $remember($response['message']['id'] ?? '');
+            $draftMutation = $normalizedPath === 'drafts' || strpos($normalizedPath, 'drafts/') === 0;
+            if ($draftMutation) {
+              // Replacing or sending a draft may delete its previous message ID,
+              // which Gmail's write response does not include.
+              foreach (glob(pseGmailHistoryDirectory($settings) . '/messages/*.json') ?: [] as $file) {
+                $entry = pseReadJson($file, []);
+                if ((string)($entry['identity'] ?? '') === pseGmailHistoryIdentity($settings) &&
+                  in_array('DRAFT', (array)($entry['message']['labelIds'] ?? []), true)) {
+                  $remember($entry['message']['id'] ?? '');
+                }
+              }
+            }
+            $folders = ['ALL' => true];
+            if ($draftMutation) $folders['DRAFT'] = true;
+            foreach (array_merge(
+              (array)($data['addLabelIds'] ?? []), (array)($data['removeLabelIds'] ?? []),
+              (array)($response['labelIds'] ?? []), (array)($response['message']['labelIds'] ?? [])
+            ) as $label) $folders[(string)$label] = true;
+            foreach ($ids as $id) {
+              $entry = pseGmailHistoryReadMessage($settings, $id);
+              if (empty($entry)) {
+                $folders['*'] = true;
+              } else {
+                foreach ((array)($entry['message']['labelIds'] ?? []) as $label) $folders[(string)$label] = true;
+              }
+            }
+            if ($normalizedPath === 'messages/send' || $normalizedPath === 'messages/insert' ||
+              $normalizedPath === 'drafts/send') $folders['SENT'] = true;
+            if (empty($ids)) $folders['*'] = true;
+            $bodyChanged = $draftMutation || strtoupper($method) === 'DELETE' ||
+              in_array($normalizedPath, ['messages/batchDelete', 'messages/send', 'messages/insert', 'messages/import'], true);
+            $labelMutation = $normalizedPath === 'messages/batchModify' ||
+              (bool)preg_match('~^messages/[^/]+/modify$~', $normalizedPath);
+            pseGmailHistoryMarkMutation(
+              $settings, array_values($ids), array_keys($folders), $bodyChanged,
+              $labelMutation ? (array)($data['addLabelIds'] ?? []) : [],
+              $labelMutation ? (array)($data['removeLabelIds'] ?? []) : []
+            );
+            pseGmailHistoryRemoveFile(pseMailCacheFoldersFile($settings));
+          })();
+        } catch (Throwable $cacheError) {
+          // The server already completed the write. Reporting failure here could
+          // make the user resend a message or repeat another successful operation.
+          error_log('PSE: Gmail operation succeeded, cache invalidation failed: ' . $cacheError->getMessage());
+        }
+      }
+      return $response;
     } catch (RuntimeException $error) {
       if ($attempt === 0 && strpos($error->getMessage(), '401') !== false) {
         continue;
@@ -3622,6 +3980,594 @@ function pseReadAttachmentToken(array $settings, string $purpose, string $token)
   ];
 }
 
+function pseGmailHistoryIdentity(array $settings): string
+{
+  $email = strtolower(trim((string)($settings['google_oauth_email'] ?? '')));
+  if ($email === '') {
+    $email = strtolower(trim((string)($settings['imap_username'] ?? '')));
+  }
+  return hash('sha256', implode("\0", [
+    (string)($settings['account_id'] ?? ''), $email, 'gmail-history-v1'
+  ]));
+}
+
+function pseGmailHistoryDirectory(array $settings): string
+{
+  $directory = pseMailCacheAccountDirectory($settings) . '/gmail-history';
+  pseEnsureDirectory($directory);
+  pseEnsureDirectory($directory . '/messages');
+  return $directory;
+}
+
+function pseGmailHistoryWithLock(array $settings, callable $callback)
+{
+  $file = pseMailCacheAccountDirectory($settings) . '/gmail-history.lock';
+  $handle = @fopen($file, 'c+');
+  if (!$handle) {
+    throw new RuntimeException('Unable to lock Gmail synchronization.');
+  }
+  try {
+    if (!@flock($handle, LOCK_EX)) {
+      throw new RuntimeException('Unable to lock Gmail synchronization.');
+    }
+    return $callback();
+  } finally {
+    @flock($handle, LOCK_UN);
+    fclose($handle);
+  }
+}
+
+function pseGmailHistoryMessageFile(array $settings, string $id): string
+{
+  return pseGmailHistoryDirectory($settings) . '/messages/' . hash('sha256', $id) . '.json';
+}
+
+function pseGmailHistoryReadMessage(array $settings, string $id): array
+{
+  $entry = pseReadJson(pseGmailHistoryMessageFile($settings, $id), []);
+  if (
+    (int)($entry['schema'] ?? 0) !== 1 ||
+    (string)($entry['identity'] ?? '') !== pseGmailHistoryIdentity($settings) ||
+    (string)($entry['message']['id'] ?? '') !== $id ||
+    !preg_match('/^[a-f0-9]{32}$/', (string)($entry['cacheToken'] ?? '')) ||
+    !is_array($entry['message']['payload'] ?? null) ||
+    !in_array((string)($entry['format'] ?? ''), ['metadata', 'full'], true)
+  ) {
+    return [];
+  }
+  return $entry;
+}
+
+function pseGmailHistoryMessageQuery(array $query): array
+{
+  if ((string)($query['format'] ?? 'full') !== 'metadata') {
+    return ['format' => 'full'];
+  }
+  $headers = [];
+  foreach ((array)($query['metadataHeaders'] ?? []) as $header) {
+    $header = strtolower(trim((string)$header));
+    if ($header !== '') {
+      $headers[$header] = $header;
+    }
+  }
+  sort($headers, SORT_STRING);
+  return empty($headers)
+    ? ['format' => 'metadata']
+    : ['format' => 'metadata', 'metadataHeaders' => array_values($headers)];
+}
+
+function pseGmailHistoryFetchMessage(array $settings, string $id, array $query): array
+{
+  $message = pseGoogleApi($settings, 'GET', 'messages/' . rawurlencode($id), $query);
+  if ((string)($message['id'] ?? '') !== $id || !is_array($message['payload'] ?? null)) {
+    throw new RuntimeException('Gmail returned an incomplete message.');
+  }
+  return [
+    'schema' => 1,
+    'identity' => pseGmailHistoryIdentity($settings),
+    'format' => (string)$query['format'],
+    'headers' => (array)($query['metadataHeaders'] ?? ['*']),
+    'cachedAt' => time(),
+    'cacheToken' => bin2hex(random_bytes(16)),
+    'message' => $message
+  ];
+}
+
+function pseGmailCachedMessage(array $settings, string $id, array $messageQuery): array
+{
+  if (!preg_match('/^[a-zA-Z0-9_-]+$/', $id)) {
+    throw new RuntimeException('Invalid Gmail message identifier.');
+  }
+  $query = pseGmailHistoryMessageQuery($messageQuery);
+  return pseGmailHistoryWithLock($settings, function () use ($settings, $id, $query): array {
+    $entry = pseGmailHistoryReadMessage($settings, $id);
+    $complete = !empty($entry) && (string)$entry['format'] === 'full';
+    if (!empty($entry) && $query['format'] === 'metadata' && !$complete) {
+      $cachedHeaders = (array)($entry['headers'] ?? []);
+      $requiredHeaders = (array)($query['metadataHeaders'] ?? ['*']);
+      $complete = in_array('*', $cachedHeaders, true) ||
+        empty(array_diff($requiredHeaders, $cachedHeaders));
+    }
+    if ($complete) {
+      return array_merge((array)$entry['message'], ['_pseGmailCacheToken' => (string)$entry['cacheToken']]);
+    }
+    // Preserve known metadata coverage when a later consumer needs extra headers.
+    if (!empty($entry) && $query['format'] === 'metadata') {
+      if (in_array('*', (array)$entry['headers'], true)) {
+        unset($query['metadataHeaders']);
+      } elseif (isset($query['metadataHeaders'])) {
+        $query['metadataHeaders'] = array_values(array_unique(array_merge(
+          (array)$entry['headers'], (array)$query['metadataHeaders']
+        )));
+        sort($query['metadataHeaders'], SORT_STRING);
+      }
+    }
+    $entry = pseGmailHistoryFetchMessage($settings, $id, $query);
+    pseWriteJson(pseGmailHistoryMessageFile($settings, $id), $entry);
+    return array_merge((array)$entry['message'], ['_pseGmailCacheToken' => (string)$entry['cacheToken']]);
+  });
+}
+
+function pseGmailHistoryMessageToken(array $settings, string $id): string
+{
+  $entry = pseGmailHistoryReadMessage($settings, $id);
+  return (string)($entry['cacheToken'] ?? '');
+}
+
+function pseGmailHistoryRemoveFile(string $file): void
+{
+  if (is_file($file) && !@unlink($file) && is_file($file)) {
+    throw new RuntimeException('Unable to invalidate the Gmail cache.');
+  }
+}
+
+function pseGmailHistoryResetCaches(array $settings): void
+{
+  $directory = pseMailCacheAccountDirectory($settings);
+  foreach (['lists', 'calendars', 'messages', 'rendered', 'indexes'] as $layer) {
+    foreach (glob($directory . '/' . $layer . '/*.json') ?: [] as $file) {
+      pseGmailHistoryRemoveFile($file);
+    }
+  }
+  foreach (glob($directory . '/folders*.json') ?: [] as $file) {
+    pseGmailHistoryRemoveFile($file);
+  }
+  foreach (glob(pseGmailHistoryDirectory($settings) . '/messages/*.json') ?: [] as $file) {
+    pseGmailHistoryRemoveFile($file);
+  }
+}
+
+function pseGmailHistoryInvalidateDerived(
+  array $settings,
+  array $changedIds,
+  array $changedFolders,
+  array $bodyChangedIds = []
+): void {
+  $directory = pseMailCacheAccountDirectory($settings);
+  $ids = array_fill_keys($changedIds, true);
+  $folders = array_fill_keys($changedFolders, true);
+  foreach (['lists', 'calendars', 'messages', 'rendered'] as $layer) {
+    foreach (glob($directory . '/' . $layer . '/*.json') ?: [] as $file) {
+      $envelope = pseReadJson($file, []);
+      $remove = in_array($layer, ['lists', 'calendars'], true)
+        ? (isset($folders['*']) || isset($folders[(string)($envelope['folder'] ?? '')]))
+        : isset($ids[(string)($envelope['uid'] ?? '')]);
+      if ($remove) {
+        pseGmailHistoryRemoveFile($file);
+      }
+    }
+  }
+  if (!empty($bodyChangedIds)) {
+    foreach (glob($directory . '/indexes/attachment-counts-*.json') ?: [] as $file) {
+      $counts = pseReadJson($file, []);
+      $changed = false;
+      foreach ($bodyChangedIds as $id) {
+        if (array_key_exists($id, $counts)) {
+          unset($counts[$id]);
+          $changed = true;
+        }
+      }
+      if ($changed) {
+        pseWriteJson($file, $counts);
+      }
+    }
+  }
+}
+
+function pseGmailHistoryInvalidateMessage(array $settings, string $id, bool $deleted = false): void
+{
+  if (!preg_match('/^[a-zA-Z0-9_-]+$/', $id)) {
+    return;
+  }
+  pseGmailHistoryWithLock($settings, function () use ($settings, $id): void {
+    pseGmailHistoryRemoveFile(pseGmailHistoryMessageFile($settings, $id));
+    // An explicit local mutation must not reuse a payload from before that action.
+    // Gmail history remains the authority; this does not advance its checkpoint.
+  });
+}
+
+function pseGmailHistoryCursor($value): string
+{
+  if ((!is_string($value) && !is_int($value)) || !preg_match('/^[0-9]+$/', (string)$value)) {
+    throw new RuntimeException('Gmail returned an invalid synchronization checkpoint.');
+  }
+  return (string)$value;
+}
+
+function pseGmailHistoryCursorCompare(string $left, string $right): int
+{
+  $left = ltrim($left, '0') ?: '0';
+  $right = ltrim($right, '0') ?: '0';
+  return strlen($left) === strlen($right) ? strcmp($left, $right) : (strlen($left) <=> strlen($right));
+}
+
+function pseGmailHistoryAcknowledgeFolderCounts(
+  array $settings,
+  string $historyId,
+  array $folderIds,
+  string $expectedRevision = ''
+): void {
+  pseGmailHistoryWithLock($settings, function () use ($settings, $historyId, $folderIds, $expectedRevision): void {
+    $file = pseGmailHistoryDirectory($settings) . '/state.json';
+    $state = pseReadJson($file, []);
+    if (
+      (string)($state['identity'] ?? '') !== pseGmailHistoryIdentity($settings) ||
+      (string)($state['historyId'] ?? '') !== $historyId ||
+      ($expectedRevision !== '' && pseGmailHistoryRevision($settings) !== $expectedRevision)
+    ) {
+      return;
+    }
+    $acknowledged = array_fill_keys(array_map('strval', $folderIds), true);
+    $state['countDirtyFolders'] = isset($acknowledged['*'])
+      ? []
+      : array_values(array_filter(
+        (array)($state['countDirtyFolders'] ?? []),
+        function ($id) use ($acknowledged): bool { return !isset($acknowledged[(string)$id]); }
+      ));
+    pseWriteJson($file, $state);
+  });
+}
+
+function pseGmailHistoryRevision(array $settings, string $folder = ''): string
+{
+  $state = pseReadJson(pseGmailHistoryDirectory($settings) . '/state.json', []);
+  if (
+    (int)($state['schema'] ?? 0) !== 1 ||
+    (string)($state['identity'] ?? '') !== pseGmailHistoryIdentity($settings)
+  ) {
+    return '';
+  }
+  return hash('sha256', implode("\0", [
+    (string)($state['wildcardRevision'] ?? ''),
+    $folder === ''
+      ? (string)($state['historyId'] ?? '') . '|' . (string)($state['mutationRevision'] ?? '')
+      : (string)($state['folderRevisions'][$folder] ?? '')
+  ]));
+}
+
+function pseGmailHistoryWriteDerived(
+  array $settings,
+  string $folder,
+  string $expectedRevision,
+  string $file,
+  array $data,
+  array $meta = []
+): array {
+  return pseGmailHistoryWithLock($settings, function () use (
+    $settings, $folder, $expectedRevision, $file, $data, $meta
+  ): array {
+    if ($expectedRevision === '' || pseGmailHistoryRevision($settings, $folder) !== $expectedRevision) {
+      return [];
+    }
+    $meta['gmailHistoryRevision'] = $expectedRevision;
+    return pseMailCacheEnvelopeWrite($file, $data, $meta);
+  });
+}
+
+function pseGmailHistoryMarkMutation(
+  array $settings,
+  array $ids,
+  array $folders = ['*'],
+  bool $bodyChanged = true,
+  array $addLabels = [],
+  array $removeLabels = []
+): void {
+  pseGmailHistoryWithLock($settings, function () use (
+    $settings, $ids, $folders, $bodyChanged, $addLabels, $removeLabels
+  ): void {
+    $ids = array_values(array_filter(array_map('strval', $ids), function (string $id): bool {
+      return (bool)preg_match('/^[a-zA-Z0-9_-]+$/', $id);
+    }));
+    $file = pseGmailHistoryDirectory($settings) . '/state.json';
+    $state = pseReadJson($file, []);
+    foreach ($ids as $id) {
+      $entry = pseGmailHistoryReadMessage($settings, $id);
+      if (!$bodyChanged && !empty($entry) && (!empty($addLabels) || !empty($removeLabels))) {
+        $labels = array_fill_keys(array_map('strval', (array)($entry['message']['labelIds'] ?? [])), true);
+        foreach ($addLabels as $label) {
+          $labels[(string)$label] = true;
+        }
+        foreach ($removeLabels as $label) {
+          unset($labels[(string)$label]);
+        }
+        $entry['message']['labelIds'] = array_map('strval', array_keys($labels));
+        $entry['cacheToken'] = bin2hex(random_bytes(16));
+        pseWriteJson(pseGmailHistoryMessageFile($settings, $id), $entry);
+      } else {
+        pseGmailHistoryRemoveFile(pseGmailHistoryMessageFile($settings, $id));
+      }
+    }
+    pseGmailHistoryInvalidateDerived($settings, $ids, $folders, $bodyChanged ? $ids : []);
+    if ((string)($state['identity'] ?? '') === pseGmailHistoryIdentity($settings)) {
+      $state['mutationRevision'] = bin2hex(random_bytes(16));
+      foreach ($folders as $folder) {
+        if ((string)$folder === '*') {
+          $state['wildcardRevision'] = bin2hex(random_bytes(16));
+        } else {
+          $state['folderRevisions'][(string)$folder] = bin2hex(random_bytes(16));
+        }
+      }
+      $state['countDirtyFolders'] = array_values(array_unique(array_merge(
+        (array)($state['countDirtyFolders'] ?? []), array_map('strval', $folders)
+      )));
+      pseWriteJson($file, $state);
+    }
+  });
+}
+
+function pseGmailHistorySnapshotResult(array $settings, array $result): array
+{
+  // Called while the history lock is still held, so counts and browser revisions
+  // refer to the same committed checkpoint even when another window is polling.
+  $state = pseReadJson(pseGmailHistoryDirectory($settings) . '/state.json', []);
+  $result['gmailHistoryRevision'] = pseGmailHistoryRevision($settings);
+  $result['gmailWildcardRevision'] = (string)($state['wildcardRevision'] ?? '');
+  $result['gmailFolderRevisionTokens'] = (array)($state['folderRevisions'] ?? []);
+  return $result;
+}
+
+function pseGmailHistorySync(array $settings): array
+{
+  return pseGmailHistoryWithLock($settings, function () use ($settings): array {
+    $stateFile = pseGmailHistoryDirectory($settings) . '/state.json';
+    $identity = pseGmailHistoryIdentity($settings);
+    $state = pseReadJson($stateFile, []);
+    $validState = (int)($state['schema'] ?? 0) === 1 &&
+      (string)($state['identity'] ?? '') === $identity &&
+      is_string($state['historyId'] ?? null) &&
+      (bool)preg_match('/^[0-9]+$/', (string)$state['historyId']);
+    $result = [
+      'historyId' => '', 'changedMessageIds' => [], 'deletedMessageIds' => [],
+      'changedFolders' => [], 'countDirtyFolders' => [], 'reset' => false, 'syncedAt' => time()
+    ];
+    if (!$validState) {
+      // Capture the checkpoint before the first requested page is populated. New
+      // mail arriving during that page fetch will be included by the next history read.
+      $profile = pseGoogleApi($settings, 'GET', 'profile');
+      $cursor = pseGmailHistoryCursor($profile['historyId'] ?? null);
+      pseGmailHistoryResetCaches($settings);
+      pseWriteJson($stateFile, [
+        'schema' => 1, 'identity' => $identity, 'historyId' => $cursor,
+        'syncedAt' => $result['syncedAt'], 'countDirtyFolders' => ['*'],
+        'wildcardRevision' => bin2hex(random_bytes(16)), 'folderRevisions' => []
+      ]);
+      $result['historyId'] = $cursor;
+      $result['reset'] = true;
+      $result['changedFolders'] = ['*'];
+      $result['countDirtyFolders'] = ['*'];
+      return pseGmailHistorySnapshotResult($settings, $result);
+    }
+    $cursor = (string)$state['historyId'];
+    $records = [];
+    $nextToken = '';
+    $seenTokens = [];
+    try {
+      do {
+        $query = ['startHistoryId' => $state['historyId'], 'maxResults' => 500];
+        if ($nextToken !== '') {
+          $query['pageToken'] = $nextToken;
+        }
+        $page = pseGoogleApi($settings, 'GET', 'history', $query);
+        $pageCursor = pseGmailHistoryCursor($page['historyId'] ?? null);
+        if (pseGmailHistoryCursorCompare($pageCursor, $cursor) < 0) {
+          throw new RuntimeException('Gmail returned an older synchronization checkpoint.');
+        }
+        $cursor = $pageCursor;
+        foreach ((array)($page['history'] ?? []) as $record) {
+          if (!is_array($record)) {
+            throw new RuntimeException('Gmail returned invalid synchronization history.');
+          }
+          pseGmailHistoryCursor($record['id'] ?? null);
+          $records[] = $record;
+        }
+        $nextToken = (string)($page['nextPageToken'] ?? '');
+        if ($nextToken !== '') {
+          if (isset($seenTokens[$nextToken])) {
+            throw new RuntimeException('Gmail repeated a synchronization page.');
+          }
+          $seenTokens[$nextToken] = true;
+        }
+      } while ($nextToken !== '');
+    } catch (RuntimeException $error) {
+      if ($error->getCode() !== 404) {
+        throw $error;
+      }
+      // Only the history endpoint's actual HTTP 404 means an expired checkpoint.
+      // A rate limit, authentication error or transient failure preserves all data.
+      $profile = pseGoogleApi($settings, 'GET', 'profile');
+      $cursor = pseGmailHistoryCursor($profile['historyId'] ?? null);
+      pseGmailHistoryResetCaches($settings);
+      pseWriteJson($stateFile, [
+        'schema' => 1, 'identity' => $identity, 'historyId' => $cursor,
+        'syncedAt' => $result['syncedAt'], 'countDirtyFolders' => ['*'],
+        'wildcardRevision' => bin2hex(random_bytes(16)), 'folderRevisions' => []
+      ]);
+      $result['historyId'] = $cursor;
+      $result['reset'] = true;
+      $result['changedFolders'] = ['*'];
+      $result['countDirtyFolders'] = ['*'];
+      return pseGmailHistorySnapshotResult($settings, $result);
+    }
+
+    $changes = [];
+    $folders = [];
+    foreach ($records as $record) {
+      $typedIds = [];
+      foreach (['messagesAdded', 'messagesDeleted', 'labelsAdded', 'labelsRemoved'] as $type) {
+        foreach ((array)($record[$type] ?? []) as $event) {
+          $message = (array)($event['message'] ?? []);
+          $id = (string)($message['id'] ?? '');
+          if (!preg_match('/^[a-zA-Z0-9_-]+$/', $id)) {
+            throw new RuntimeException('Gmail returned an invalid history message.');
+          }
+          $typedIds[$id] = true;
+          if (!isset($changes[$id])) {
+            $entry = pseGmailHistoryReadMessage($settings, $id);
+            $changes[$id] = [
+              'entry' => $entry, 'deleted' => false, 'refresh' => false,
+              'labels' => array_fill_keys(array_map('strval', (array)($entry['message']['labelIds'] ?? [])), true)
+            ];
+            foreach (array_keys($changes[$id]['labels']) as $label) {
+              $folders[$label] = true;
+            }
+          }
+          $change = &$changes[$id];
+          $eventLabels = array_map('strval', (array)($message['labelIds'] ?? []));
+          foreach ($eventLabels as $label) {
+            $folders[$label] = true;
+          }
+          $deltaLabels = array_map('strval', (array)($event['labelIds'] ?? []));
+          foreach ($deltaLabels as $label) {
+            $folders[$label] = true;
+          }
+          if ($type === 'messagesDeleted') {
+            $change['deleted'] = true;
+          } elseif ($type === 'messagesAdded') {
+            $change['deleted'] = false;
+            $change['refresh'] = !empty($change['entry']) || empty($eventLabels);
+          } else {
+            foreach ($deltaLabels as $label) {
+              if ($type === 'labelsAdded') {
+                $change['labels'][$label] = true;
+              } else {
+                unset($change['labels'][$label]);
+              }
+            }
+          }
+          if (isset($change['labels']['DRAFT']) || in_array('DRAFT', $eventLabels, true)) {
+            $change['refresh'] = $change['refresh'] || !empty($change['entry']);
+          }
+          if (empty($change['entry']) && empty($eventLabels)) {
+            if ($change['deleted']) {
+              // Deleted messages can no longer reveal their former folder labels.
+              $folders['*'] = true;
+            } else {
+              // Resolve an unknown live message's labels once, retaining its
+              // summary so the requested page can reuse that same response.
+              $change['refresh'] = true;
+            }
+          }
+          unset($change);
+        }
+      }
+      foreach ((array)($record['messages'] ?? []) as $message) {
+        $id = (string)($message['id'] ?? '');
+        if (isset($typedIds[$id])) {
+          continue;
+        }
+        if (!preg_match('/^[a-zA-Z0-9_-]+$/', $id)) {
+          throw new RuntimeException('Gmail returned an invalid history message.');
+        }
+        if (!isset($changes[$id])) {
+          $changes[$id] = ['entry' => pseGmailHistoryReadMessage($settings, $id), 'deleted' => false, 'labels' => [], 'refresh' => true];
+        } else {
+          $changes[$id]['refresh'] = true;
+        }
+        foreach (array_merge(
+          (array)($changes[$id]['entry']['message']['labelIds'] ?? []),
+          (array)($message['labelIds'] ?? [])
+        ) as $label) {
+          $folders[(string)$label] = true;
+        }
+        if (empty($changes[$id]['entry'])) {
+          $folders['*'] = true;
+        }
+      }
+    }
+    // Finish every network read before applying any change or advancing the cursor.
+    // Retry after a partial failure therefore starts from the same saved checkpoint.
+    $bodyChanged = [];
+    foreach ($changes as $id => &$change) {
+      if ($change['deleted'] || !$change['refresh']) {
+        continue;
+      }
+      $entry = (array)$change['entry'];
+      $query = empty($entry)
+        ? ['format' => 'metadata', 'metadataHeaders' => ['subject', 'from', 'to', 'cc', 'bcc', 'date', 'reply-to']]
+        : ['format' => (string)$entry['format']];
+      if (!empty($entry) && $query['format'] === 'metadata' && !in_array('*', (array)$entry['headers'], true)) {
+        $query['metadataHeaders'] = (array)$entry['headers'];
+      }
+      try {
+        $change['entry'] = pseGmailHistoryFetchMessage($settings, (string)$id, $query);
+        foreach ((array)($change['entry']['message']['labelIds'] ?? []) as $label) {
+          $folders[(string)$label] = true;
+        }
+      } catch (RuntimeException $error) {
+        if ($error->getCode() !== 404) {
+          throw $error;
+        }
+        $change['deleted'] = true;
+        if (empty($entry)) {
+          $folders['*'] = true;
+        }
+      }
+      $bodyChanged[] = (string)$id;
+    }
+    unset($change);
+    foreach ($changes as $id => $change) {
+      $id = (string)$id;
+      $result['changedMessageIds'][] = $id;
+      if ($change['deleted']) {
+        $result['deletedMessageIds'][] = $id;
+        $bodyChanged[] = $id;
+        pseGmailHistoryRemoveFile(pseGmailHistoryMessageFile($settings, $id));
+      } elseif (!empty($change['entry'])) {
+        $entry = (array)$change['entry'];
+        if (!$change['refresh']) {
+          $entry['message']['labelIds'] = array_map('strval', array_keys($change['labels']));
+          $entry['cacheToken'] = bin2hex(random_bytes(16));
+        }
+        pseWriteJson(pseGmailHistoryMessageFile($settings, $id), $entry);
+      }
+    }
+    $result['changedFolders'] = array_map('strval', array_keys($folders));
+    $result['countDirtyFolders'] = array_values(array_unique(array_merge(
+      (array)($state['countDirtyFolders'] ?? []), $result['changedFolders']
+    )));
+    pseGmailHistoryInvalidateDerived(
+      $settings, $result['changedMessageIds'], $result['changedFolders'], array_values(array_unique($bodyChanged))
+    );
+    $folderRevisions = (array)($state['folderRevisions'] ?? []);
+    $wildcardRevision = (string)($state['wildcardRevision'] ?? '');
+    foreach ($result['changedFolders'] as $folder) {
+      if ($folder === '*') {
+        $wildcardRevision = bin2hex(random_bytes(16));
+      } else {
+        $folderRevisions[$folder] = bin2hex(random_bytes(16));
+      }
+    }
+    pseWriteJson($stateFile, [
+      'schema' => 1, 'identity' => $identity, 'historyId' => $cursor,
+      'syncedAt' => $result['syncedAt'], 'countDirtyFolders' => $result['countDirtyFolders'],
+      'wildcardRevision' => $wildcardRevision, 'folderRevisions' => $folderRevisions,
+      'mutationRevision' => (string)($state['mutationRevision'] ?? '')
+    ]);
+    $result['historyId'] = $cursor;
+    return pseGmailHistorySnapshotResult($settings, $result);
+  });
+}
+
 function pseGmailHeaders(array $payload): array
 {
   $headers = [];
@@ -3826,15 +4772,26 @@ function pseGmailFindPart(array $part, string $partNo): ?array
   return null;
 }
 
-function pseGmailFolders(array $settings): array
+function pseGmailIgnoredLabels(): array
 {
-  $response = pseGoogleApi($settings, 'GET', 'labels');
-  $folders = [];
-  $ignored = [
+  return [
     'CHAT', 'IMPORTANT', 'STARRED', 'UNREAD',
     'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS',
     'CATEGORY_UPDATES', 'CATEGORY_FORUMS'
   ];
+}
+
+function pseGmailFolders(
+  array $settings,
+  array $cachedFolders = [],
+  ?array $refreshFolderIds = null
+): array
+{
+  $response = pseGoogleApi($settings, 'GET', 'labels');
+  $folders = [];
+  $cachedCounts = pseMailCacheFolderCounts($cachedFolders);
+  $refreshFolders = $refreshFolderIds === null ? null : array_fill_keys(array_map('strval', $refreshFolderIds), true);
+  $ignored = pseGmailIgnoredLabels();
   foreach ((array)($response['labels'] ?? []) as $label) {
     if (!is_array($label)) {
       continue;
@@ -3851,7 +4808,15 @@ function pseGmailFolders(array $settings): array
         continue;
       }
     }
-    $detail = pseGoogleApi($settings, 'GET', 'labels/' . rawurlencode($id));
+    if ($refreshFolders === null || isset($refreshFolders[$id]) || !isset($cachedCounts[$id])) {
+      $detail = pseGoogleApi($settings, 'GET', 'labels/' . rawurlencode($id));
+    } else {
+      $detail = [
+        'name' => (string)($label['name'] ?? $id),
+        'messagesTotal' => $cachedCounts[$id]['messages'],
+        'messagesUnread' => $cachedCounts[$id]['unseen']
+      ];
+    }
     $special = 'folder';
     if ($id === 'INBOX') {
       $special = 'inbox';
@@ -4202,17 +5167,12 @@ function pseGmailMessageList(
       ? max(0, (int)$cachedAttachmentCounts[$id])
       : null;
     $needAttachmentStructure = $showAttachmentPill && $cachedAttachmentCount === null;
+    // Summary payloads are shared across folders, so retain recipients even
+    // when a message is first encountered in Inbox rather than Sent.
     $messageQuery = ($search !== '' || $previewRows > 0 || $needAttachmentStructure)
       ? ['format' => 'full']
-      : ['format' => 'metadata', 'metadataHeaders' => $isSent
-        ? ['Subject', 'From', 'To', 'Cc', 'Bcc', 'Date']
-        : ['Subject', 'From', 'Date']];
-    $metadata = pseGoogleApi(
-      $settings,
-      'GET',
-      'messages/' . rawurlencode($id),
-      $messageQuery
-    );
+      : ['format' => 'metadata', 'metadataHeaders' => ['Subject', 'From', 'To', 'Cc', 'Bcc', 'Date', 'Reply-To']];
+    $metadata = pseGmailCachedMessage($settings, $id, $messageQuery);
     $headers = pseGmailHeaders((array)($metadata['payload'] ?? []));
     $fromFirst = pseSenderDisplayParts((string)($headers['from'] ?? ''));
     $labels = array_map('strval', (array)($metadata['labelIds'] ?? []));
@@ -4296,12 +5256,7 @@ function pseGmailMessageDetails(
   if (!preg_match('/^[a-zA-Z0-9_-]+$/', $messageId)) {
     throw new RuntimeException('Invalid Gmail message identifier.');
   }
-  $message = pseGoogleApi(
-    $settings,
-    'GET',
-    'messages/' . rawurlencode($messageId),
-    ['format' => 'full']
-  );
+  $message = pseGmailCachedMessage($settings, $messageId, ['format' => 'full']);
   $payload = (array)($message['payload'] ?? []);
   $headers = pseGmailHeaders($payload);
   $content = ['plain' => '', 'html' => '', 'attachments' => [], 'inline' => []];
@@ -4397,7 +5352,8 @@ function pseGmailMessageDetails(
     'answered' => false,
     'size' => $messageSize,
     '_cacheSourceHtml' => $cacheSourceHtml,
-    '_cachePrefetched' => $prefetchOnly
+    '_cachePrefetched' => $prefetchOnly,
+    '_cacheGmailToken' => (string)($message['_pseGmailCacheToken'] ?? '')
   ];
 }
 
@@ -4971,14 +5927,10 @@ function pseCalendarMonthData(
     } while ($token !== '');
 
     foreach (array_values($ids) as $id) {
-      $metadata = pseGoogleApi(
-        $settings,
-        'GET',
-        'messages/' . rawurlencode($id),
-        ['format' => 'metadata', 'metadataHeaders' => $isSent
-          ? ['Subject', 'From', 'To', 'Cc', 'Bcc', 'Date']
-          : ['Subject', 'From', 'Date']]
-      );
+      $metadata = pseGmailCachedMessage($settings, $id, [
+        'format' => 'metadata',
+        'metadataHeaders' => ['Subject', 'From', 'To', 'Cc', 'Bcc', 'Date', 'Reply-To']
+      ]);
       $timestamp = (int)floor(((int)($metadata['internalDate'] ?? 0)) / 1000);
       if ($timestamp < $startTimestamp || $timestamp >= $endTimestamp) {
         continue;
@@ -5135,46 +6087,86 @@ function pseCachedCalendarMonth(
     $attachmentFilter
   );
   $previous = pseMailCacheEnvelopeRead($file);
-  if (!$forceRefresh && !empty($previous)) {
+  $isGmail = pseIsGmailAccount($settings);
+  $revision = $isGmail ? pseGmailHistoryRevision($settings, $folder) : '';
+  if (
+    !$forceRefresh && !empty($previous) &&
+    (!$isGmail || ($revision !== '' && (string)($previous['gmailHistoryRevision'] ?? '') === $revision))
+  ) {
     return [
       'data' => $previous['data'],
       'cache' => pseMailCacheInfo($previous, true)
     ];
   }
 
-  try {
-    $data = pseCalendarMonthData(
-      $settings,
-      $folder,
-      $month,
-      $search,
-      $senderFilter,
-      $unreadOnly,
-      $attachmentFilter
-    );
-  } catch (Throwable $error) {
-    if (!empty($previous)) {
-      $cache = pseMailCacheInfo($previous, true);
-      $cache['refreshError'] = $error->getMessage();
-      $cache['googleReconnectRequired'] = $error instanceof PseGoogleReconnectRequiredException;
-      return ['data' => $previous['data'], 'cache' => $cache];
+  for ($attempt = 0; $attempt < 2; $attempt++) {
+    $historySync = [];
+    try {
+      if ($isGmail) {
+        $historySync = pseGmailHistorySync($settings);
+        $revision = pseGmailHistoryRevision($settings, $folder);
+        // Changed folders were invalidated by history; a surviving month is
+        // current and can be reused without another Gmail ID-list request.
+        $validated = pseMailCacheEnvelopeRead($file);
+        if (!empty($validated) && (string)($validated['gmailHistoryRevision'] ?? '') === $revision) {
+          $meta = $validated;
+          unset($meta['data']);
+          $meta['serverSyncedAt'] = (int)($historySync['syncedAt'] ?? time());
+          $envelope = pseGmailHistoryWriteDerived($settings, $folder, $revision, $file, $validated['data'], $meta);
+          if (empty($envelope)) {
+            if ($attempt === 0) continue;
+            throw new RuntimeException('Mailbox changed during calendar refresh. Please retry.');
+          }
+          return [
+            'data' => $envelope['data'],
+            'cache' => pseMailCacheInfo($envelope, true),
+            'gmailHistorySynced' => true,
+            'historyId' => (string)($historySync['historyId'] ?? '')
+          ];
+        }
+      }
+      $data = pseCalendarMonthData(
+        $settings,
+        $folder,
+        $month,
+        $search,
+        $senderFilter,
+        $unreadOnly,
+        $attachmentFilter
+      );
+      $meta = [
+        'folder' => $folder,
+        'month' => $month,
+        'search' => $search,
+        'senderFilter' => $senderFilter,
+        'unreadOnly' => $unreadOnly,
+        'attachmentFilter' => $attachmentFilter,
+        'freshFromServer' => true,
+        'serverSyncedAt' => (int)($historySync['syncedAt'] ?? time()),
+        'gmailHistoryId' => (string)($historySync['historyId'] ?? '')
+      ];
+      $envelope = $isGmail
+        ? pseGmailHistoryWriteDerived($settings, $folder, $revision, $file, $data, $meta)
+        : pseMailCacheEnvelopeWrite($file, $data, $meta);
+      if (empty($envelope)) {
+        if ($attempt === 0) continue;
+        throw new RuntimeException('Mailbox changed during calendar refresh. Please retry.');
+      }
+      return [
+        'data' => $data,
+        'cache' => pseMailCacheInfo($envelope, false)
+      ];
+    } catch (Throwable $error) {
+      if (!empty($previous)) {
+        $cache = pseMailCacheInfo($previous, true);
+        $cache['refreshError'] = $error->getMessage();
+        $cache['googleReconnectRequired'] = $error instanceof PseGoogleReconnectRequiredException;
+        return ['data' => $previous['data'], 'cache' => $cache];
+      }
+      throw $error;
     }
-    throw $error;
   }
-
-  $envelope = pseMailCacheEnvelopeWrite($file, $data, [
-    'folder' => $folder,
-    'month' => $month,
-    'search' => $search,
-    'senderFilter' => $senderFilter,
-    'unreadOnly' => $unreadOnly,
-    'attachmentFilter' => $attachmentFilter,
-    'freshFromServer' => true
-  ]);
-  return [
-    'data' => $data,
-    'cache' => pseMailCacheInfo($envelope, false)
-  ];
+  throw new RuntimeException('Unable to refresh calendar.');
 }
 
 function pseMessageList(
@@ -9470,7 +10462,7 @@ function pseApplyClientAppearanceSettings(array $settings, $raw): array
 /* PSE_EMBEDDED_CHANGELOG_START */
 function pseBundledChangelogText(): string
 {
-  return base64_decode('IyBQU0UgRW1haWwgQ2xpZW50IGNoYW5nZWxvZwoKUmVsZWFzZSBub3RlcyBhcmUgc2hvd24gd2hlbiBjaGVja2luZyBmb3IgYW4gdXBkYXRlIGFuZCBhZnRlciBhbiB1cGRhdGUgaXMgaW5zdGFsbGVkLiBEYXRlcyBpbiBhdXRvbWF0aWNhbGx5IHJlY29yZGVkIG1lcmdlIGVudHJpZXMgdXNlIFVUQy4gVGhlIHJlcG9zaXRvcnkga2VlcHMgdGhlIGNvbXBsZXRlIGhpc3Rvcnk7IHRoZSBzaW5nbGUgUEhQIGZpbGUgYnVuZGxlcyB0aGUgbGF0ZXN0IG5vdGVzIGZvciBvZmZsaW5lIHVzZS4KCiMjIDIuMTguMiAoMjAyNi0xMC0wNikKCi0gT3BlbmluZyBhIGAucHNlYCBmaWxlIHJlcXVlc3RzIHRoZSBleGlzdGluZyBQV0Egd2luZG93IHdpdGhvdXQgcmVsb2FkaW5nIGl0IG9uIGJyb3dzZXJzIHN1cHBvcnRpbmcgdGhlIExhdW5jaCBIYW5kbGVyIEFQSS4gTXVsdGlwbGUgZmlsZXMgb3BlbmVkIHRvZ2V0aGVyIHNoYXJlIG9uZSB3aW5kb3cuCi0gQSBuZXcgZmlsZS1sYXVuY2ggd2luZG93IGdvZXMgZGlyZWN0bHkgdG8gaXRzIGxvY2FsIGZpbGVzLiBTdGFydHVwIGZvbGRlci9tZXNzYWdlIHN5bmNpbmcsIHF1ZXVlZCBtYWlsYm94IHdvcmssIHBvbGxpbmcsIGFuZCBtZXNzYWdlIHByZWZldGNoIHN0YXkgcGF1c2VkIHVudGlsIE9wZW4gbWFpbGJveCBvciBSZWZyZXNoIGlzIGNob3Nlbi4gUGFzc3dvcmQgc2lnbi1pbiBwcmVzZXJ2ZXMgdGhpcyBiZWhhdmlvci4KLSBGb2xkZXIgY2xlYW51cCBub3cgc2hvd3MgYSBwcm9ncmVzcyBiYXIsIHNwaW5uZXIsIHByb2Nlc3NlZCBjb3VudHMsIGVzdGltYXRlZCBmaW5pc2ggdGltZSwgYW5kIENhbmNlbC4gRXN0aW1hdGVzIGFkanVzdCBhZnRlciBjb21wbGV0ZWQgYmF0Y2hlcy4gQ2FuY2VsbGF0aW9uIHN0b3BzIGZ1dHVyZSBiYXRjaGVzIGFmdGVyIHRoZSBjdXJyZW50IHJlcXVlc3QgZmluaXNoZXMgYW5kIHByZXNlcnZlcyB0aGUgcmVtYWluaW5nIHNlbGVjdGlvbiBmb3IgYSBjb25maXJtZWQgcmVzdW1lLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNjogWyMyXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8yKSDigJQgUmVsZWFzZSAyXC4xOFwuMjogZmFzdCBQU0UgZmlsZSBsYXVuY2hlcyBhbmQgY2FuY2VsbGFibGUgY2xlYW51cCBwcm9ncmVzcy4gQ29tbWl0IFs3ODhiZDIyXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0Lzc4OGJkMjI0ZmZjODcxMDE4YzkwNDBjNGRiMGJkNzM4ZGQ4YzU1YzUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMyIC0tPgoKIyMgMi4xOC4xICgyMDI2LTEwLTA2KQoKLSBBZGRlZCB0aGlzIGNoYW5nZWxvZyBhbmQgYXV0b21hdGljIG1haW50ZW5hbmNlIGFmdGVyIGV2ZXJ5IG1lcmdlIGludG8gYG1haW5gLCBpbmNsdWRpbmcgR2l0SHViIG1lcmdlLCBzcXVhc2gsIGFuZCByZWJhc2UgbWVyZ2VzLgotIEVhY2ggbWVyZ2UgcHVibGlzaGVzIGEgbmV3IGFwcCB2ZXJzaW9uIGF1dG9tYXRpY2FsbHkgaWYgaXRzIGNoYW5nZXMgZG8gbm90IGFscmVhZHkgaW5jbHVkZSBhIGhpZ2hlciB2ZXJzaW9uIG51bWJlci4KLSBUaGUgdXBkYXRlIGRpYWxvZyBwcmVzZW50cyByZWxlYXNlIG5vdGVzIGJlZm9yZSBpbnN0YWxsYXRpb24gYW5kIGFnYWluIGFmdGVyIGEgc3VjY2Vzc2Z1bCB1cGRhdGUuIE5vdGVzIGFyZSBwaW5uZWQgdG8gdGhlIHNhbWUgc291cmNlIHJldmlzaW9uIGFzIHRoZSBkb3dubG9hZGVkIFBIUCBmaWxlLgotIFRoZSBQSFAgZmlsZSBpbmNsdWRlcyBidW5kbGVkIHJlbGVhc2Ugbm90ZXMgc28gZGVwbG95bWVudCBjb250aW51ZXMgdG8gcmVxdWlyZSBvbmx5IGBpbmRleC5waHBgLgoKIyMjIFNlbnQsIGZvbGRlciBjbGVhbnVwIGFuZCBXaW5kb3dzIGZpbGVzCgotIFNlbnQtZm9sZGVyIHJvd3MgYW5kIGNhbGVuZGFyIGVudHJpZXMgc2hvdyByZWNpcGllbnQgbmFtZXMgYW5kIGFkZHJlc3Nlcywgd2l0aCBDYy9CY2MgZmFsbGJhY2sgd2hlbiBUbyBpcyBlbXB0eS4gU2VuZGVyIGRldGFpbHMgcmVtYWluIGF2YWlsYWJsZSBmb3IgcmVwbGllcyBhbmQgc2VuZGVyIGZpbHRlcmluZy4KLSBBZGRlZCBhIHJlZCBjbGVhbnVwIGJpbiBhZnRlciBlYWNoIGZvbGRlcidzIHVucmVhZCBjb3VudC4gQ2hvb3NlIG9uZSB3ZWVrLCBvbmUgbW9udGgsIHR3byBtb250aHMsIGFsbCBtZXNzYWdlcywgb3IgYSBjdXN0b20gZGF0ZTsgY3V0b2ZmIGRhdGVzIGFyZSBpbmNsdXNpdmUgYW5kIGRpc3BsYXllZCBpbiB0aGUgY29uZmlndXJlZCBhY2NvdW50IHRpbWV6b25lLgotIEZvbGRlciBjbGVhbnVwIHByZXZpZXdzIGFsbCBtYXRjaGluZyBtZXNzYWdlcyBhbmQgYWx3YXlzIHJlcXVpcmVzIHR5cGluZyBgWUVTIERFTEVURSBBTExgLiBTZXJ2ZXIgc25hcHNob3RzIGJpbmQgdGhlIG9wZXJhdGlvbiB0byB0aGUgYWNjb3VudCwgZm9sZGVyLCBzZWxlY3RlZCBtZXNzYWdlcywgYW5kIGRlc3RpbmF0aW9uOyBiYXRjaGVzIGNhbiByZXN1bWUgYWZ0ZXIgYSBmYWlsZWQgcmVxdWVzdC4KLSBDbGVhbnVwIG5vcm1hbGx5IG1vdmVzIG1lc3NhZ2VzIHRvIFRyYXNoLiBDbGVhbmluZyBUcmFzaCwgb3IgYW4gSU1BUCBhY2NvdW50IHdpdGhvdXQgYSBkZXRlY3RlZCBUcmFzaCBmb2xkZXIsIGRlbGV0ZXMgcGVybWFuZW50bHk7IHRoZSBjb25maXJtYXRpb24gZXhwbGFpbnMgd2hpY2ggb3BlcmF0aW9uIGFwcGxpZXMuCi0gQWRkZWQgYmxhY2stY2F0IGFwcGxpY2F0aW9uIGFuZCBkb2N1bWVudCBpY29ucywgYSBXaW5kb3dzIGAuaWNvYCwgcG9ydGFibGUgYC5wc2VgIGVtYWlsIGFuZCBkcmFmdCBmaWxlcywgYW5kIGxvY2FsLWZpbGUgb3BlbmluZyB3aXRoIFJlcGx5LCBSZXBseSBhbGwsIEZvcndhcmQsIGFuZCBFZGl0IGNvcHkuCi0gQWRkZWQgV2luZG93cyBhcHAgaW5zdGFsbGF0aW9uLCBgLnBzZWAgYXNzb2NpYXRpb24sIGFuZCBpY29uIHNldHVwIGluc3RydWN0aW9ucyBpbiBgUkVBRE1FLVdpbmRvd3MtUFNFLm1kYC4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMDY6IFsjMV0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvMSkg4oCUIFJlbGVhc2UgMlwuMThcLjE6IFNlbnQgcmVjaXBpZW50cywgZm9sZGVyIGNsZWFudXAsIFBTRSBmaWxlcyBhbmQgdXBkYXRlIGNoYW5nZWxvZy4gQ29tbWl0IFtjYjAyZWZmXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0L2NiMDJlZmYxNDBhYmU4MWFiM2Q1ZDhkYzBhM2Q0MGYxODkzZjhlZTUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMxIC0tPgo=', true) ?: '';
+  return base64_decode('IyBQU0UgRW1haWwgQ2xpZW50IGNoYW5nZWxvZwoKUmVsZWFzZSBub3RlcyBhcmUgc2hvd24gd2hlbiBjaGVja2luZyBmb3IgYW4gdXBkYXRlIGFuZCBhZnRlciBhbiB1cGRhdGUgaXMgaW5zdGFsbGVkLiBEYXRlcyBpbiBhdXRvbWF0aWNhbGx5IHJlY29yZGVkIG1lcmdlIGVudHJpZXMgdXNlIFVUQy4gVGhlIHJlcG9zaXRvcnkga2VlcHMgdGhlIGNvbXBsZXRlIGhpc3Rvcnk7IHRoZSBzaW5nbGUgUEhQIGZpbGUgYnVuZGxlcyB0aGUgbGF0ZXN0IG5vdGVzIGZvciBvZmZsaW5lIHVzZS4KCiMjIDIuMTguMyAoMjAyNi0xMC0wNikKCi0gR21haWwgYWNjb3VudHMgbm93IHNhdmUgYSBwZXItYWNjb3VudCBgaGlzdG9yeUlkYCBjaGVja3BvaW50IGFuZCByZXF1ZXN0IG1haWxib3ggY2hhbmdlcyBzaW5jZSB0aGUgbGFzdCBzdWNjZXNzZnVsIHN5bmMuIFVuY2hhbmdlZCBtZXNzYWdlIGRldGFpbHMsIGJvZGllcyBhbmQgY2FsZW5kYXIgZW50cmllcyBhcmUgcmV1c2VkIGZyb20gY2FjaGUuCi0gTmV3IG1haWwsIHJlYWQvdW5yZWFkIGNoYW5nZXMsIG1vdmVzLCBkZWxldGlvbnMgYW5kIGRyYWZ0IGNoYW5nZXMgdXBkYXRlIHRoZSByZWxldmFudCBmb2xkZXJzLiBCYWNrZ3JvdW5kIHJlZnJlc2ggcHJlc2VydmVzIHRoZSB2aXNpYmxlIEdtYWlsIHBhZ2UgYW5kIGZpbHRlcnMsIGluY2x1ZGluZyBjaGFuZ2VzIHRoYXQgbGVhdmUgbWVzc2FnZSBjb3VudHMgdW5jaGFuZ2VkLgotIEV4cGlyZWQgR21haWwgaGlzdG9yeSBjaGVja3BvaW50cyByZWJ1aWxkIHRoZSByZXF1ZXN0ZWQgY2FjaGVkIHZpZXdzIHNhZmVseS4gSW50ZXJydXB0ZWQsIHJhdGUtbGltaXRlZCBvciBmYWlsZWQgcmVxdWVzdHMgcHJlc2VydmUgdGhlIGNoZWNrcG9pbnQgYW5kIGF2YWlsYWJsZSBjYWNoZWQgbWVzc2FnZXMgZm9yIHJldHJ5LgotIFN5bmNocm9uaXphdGlvbiBjb29yZGluYXRlcyBjb25jdXJyZW50IHJlcXVlc3RzLCBrZWVwcyBhY2NvdW50cyBpc29sYXRlZCwgYW5kIHJlamVjdHMgc3RhbGUgY2FjaGUgd3JpdGVzLiBMb2NhbCBtYWlsYm94IGFjdGlvbnMgaW52YWxpZGF0ZSBvciB1cGRhdGUgdGhlIGNvcnJlc3BvbmRpbmcgY2FjaGVkIG1lc3NhZ2VzLgoKIyMgMi4xOC4yICgyMDI2LTEwLTA2KQoKLSBPcGVuaW5nIGEgYC5wc2VgIGZpbGUgcmVxdWVzdHMgdGhlIGV4aXN0aW5nIFBXQSB3aW5kb3cgd2l0aG91dCByZWxvYWRpbmcgaXQgb24gYnJvd3NlcnMgc3VwcG9ydGluZyB0aGUgTGF1bmNoIEhhbmRsZXIgQVBJLiBNdWx0aXBsZSBmaWxlcyBvcGVuZWQgdG9nZXRoZXIgc2hhcmUgb25lIHdpbmRvdy4KLSBBIG5ldyBmaWxlLWxhdW5jaCB3aW5kb3cgZ29lcyBkaXJlY3RseSB0byBpdHMgbG9jYWwgZmlsZXMuIFN0YXJ0dXAgZm9sZGVyL21lc3NhZ2Ugc3luY2luZywgcXVldWVkIG1haWxib3ggd29yaywgcG9sbGluZywgYW5kIG1lc3NhZ2UgcHJlZmV0Y2ggc3RheSBwYXVzZWQgdW50aWwgT3BlbiBtYWlsYm94IG9yIFJlZnJlc2ggaXMgY2hvc2VuLiBQYXNzd29yZCBzaWduLWluIHByZXNlcnZlcyB0aGlzIGJlaGF2aW9yLgotIEZvbGRlciBjbGVhbnVwIG5vdyBzaG93cyBhIHByb2dyZXNzIGJhciwgc3Bpbm5lciwgcHJvY2Vzc2VkIGNvdW50cywgZXN0aW1hdGVkIGZpbmlzaCB0aW1lLCBhbmQgQ2FuY2VsLiBFc3RpbWF0ZXMgYWRqdXN0IGFmdGVyIGNvbXBsZXRlZCBiYXRjaGVzLiBDYW5jZWxsYXRpb24gc3RvcHMgZnV0dXJlIGJhdGNoZXMgYWZ0ZXIgdGhlIGN1cnJlbnQgcmVxdWVzdCBmaW5pc2hlcyBhbmQgcHJlc2VydmVzIHRoZSByZW1haW5pbmcgc2VsZWN0aW9uIGZvciBhIGNvbmZpcm1lZCByZXN1bWUuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTA2OiBbIzJdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzIpIOKAlCBSZWxlYXNlIDJcLjE4XC4yOiBmYXN0IFBTRSBmaWxlIGxhdW5jaGVzIGFuZCBjYW5jZWxsYWJsZSBjbGVhbnVwIHByb2dyZXNzLiBDb21taXQgWzc4OGJkMjJdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvNzg4YmQyMjRmZmM4NzEwMThjOTA0MGM0ZGIwYmQ3MzhkZDhjNTVjNSkuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzIgLS0+CgojIyAyLjE4LjEgKDIwMjYtMTAtMDYpCgotIEFkZGVkIHRoaXMgY2hhbmdlbG9nIGFuZCBhdXRvbWF0aWMgbWFpbnRlbmFuY2UgYWZ0ZXIgZXZlcnkgbWVyZ2UgaW50byBgbWFpbmAsIGluY2x1ZGluZyBHaXRIdWIgbWVyZ2UsIHNxdWFzaCwgYW5kIHJlYmFzZSBtZXJnZXMuCi0gRWFjaCBtZXJnZSBwdWJsaXNoZXMgYSBuZXcgYXBwIHZlcnNpb24gYXV0b21hdGljYWxseSBpZiBpdHMgY2hhbmdlcyBkbyBub3QgYWxyZWFkeSBpbmNsdWRlIGEgaGlnaGVyIHZlcnNpb24gbnVtYmVyLgotIFRoZSB1cGRhdGUgZGlhbG9nIHByZXNlbnRzIHJlbGVhc2Ugbm90ZXMgYmVmb3JlIGluc3RhbGxhdGlvbiBhbmQgYWdhaW4gYWZ0ZXIgYSBzdWNjZXNzZnVsIHVwZGF0ZS4gTm90ZXMgYXJlIHBpbm5lZCB0byB0aGUgc2FtZSBzb3VyY2UgcmV2aXNpb24gYXMgdGhlIGRvd25sb2FkZWQgUEhQIGZpbGUuCi0gVGhlIFBIUCBmaWxlIGluY2x1ZGVzIGJ1bmRsZWQgcmVsZWFzZSBub3RlcyBzbyBkZXBsb3ltZW50IGNvbnRpbnVlcyB0byByZXF1aXJlIG9ubHkgYGluZGV4LnBocGAuCgojIyMgU2VudCwgZm9sZGVyIGNsZWFudXAgYW5kIFdpbmRvd3MgZmlsZXMKCi0gU2VudC1mb2xkZXIgcm93cyBhbmQgY2FsZW5kYXIgZW50cmllcyBzaG93IHJlY2lwaWVudCBuYW1lcyBhbmQgYWRkcmVzc2VzLCB3aXRoIENjL0JjYyBmYWxsYmFjayB3aGVuIFRvIGlzIGVtcHR5LiBTZW5kZXIgZGV0YWlscyByZW1haW4gYXZhaWxhYmxlIGZvciByZXBsaWVzIGFuZCBzZW5kZXIgZmlsdGVyaW5nLgotIEFkZGVkIGEgcmVkIGNsZWFudXAgYmluIGFmdGVyIGVhY2ggZm9sZGVyJ3MgdW5yZWFkIGNvdW50LiBDaG9vc2Ugb25lIHdlZWssIG9uZSBtb250aCwgdHdvIG1vbnRocywgYWxsIG1lc3NhZ2VzLCBvciBhIGN1c3RvbSBkYXRlOyBjdXRvZmYgZGF0ZXMgYXJlIGluY2x1c2l2ZSBhbmQgZGlzcGxheWVkIGluIHRoZSBjb25maWd1cmVkIGFjY291bnQgdGltZXpvbmUuCi0gRm9sZGVyIGNsZWFudXAgcHJldmlld3MgYWxsIG1hdGNoaW5nIG1lc3NhZ2VzIGFuZCBhbHdheXMgcmVxdWlyZXMgdHlwaW5nIGBZRVMgREVMRVRFIEFMTGAuIFNlcnZlciBzbmFwc2hvdHMgYmluZCB0aGUgb3BlcmF0aW9uIHRvIHRoZSBhY2NvdW50LCBmb2xkZXIsIHNlbGVjdGVkIG1lc3NhZ2VzLCBhbmQgZGVzdGluYXRpb247IGJhdGNoZXMgY2FuIHJlc3VtZSBhZnRlciBhIGZhaWxlZCByZXF1ZXN0LgotIENsZWFudXAgbm9ybWFsbHkgbW92ZXMgbWVzc2FnZXMgdG8gVHJhc2guIENsZWFuaW5nIFRyYXNoLCBvciBhbiBJTUFQIGFjY291bnQgd2l0aG91dCBhIGRldGVjdGVkIFRyYXNoIGZvbGRlciwgZGVsZXRlcyBwZXJtYW5lbnRseTsgdGhlIGNvbmZpcm1hdGlvbiBleHBsYWlucyB3aGljaCBvcGVyYXRpb24gYXBwbGllcy4KLSBBZGRlZCBibGFjay1jYXQgYXBwbGljYXRpb24gYW5kIGRvY3VtZW50IGljb25zLCBhIFdpbmRvd3MgYC5pY29gLCBwb3J0YWJsZSBgLnBzZWAgZW1haWwgYW5kIGRyYWZ0IGZpbGVzLCBhbmQgbG9jYWwtZmlsZSBvcGVuaW5nIHdpdGggUmVwbHksIFJlcGx5IGFsbCwgRm9yd2FyZCwgYW5kIEVkaXQgY29weS4KLSBBZGRlZCBXaW5kb3dzIGFwcCBpbnN0YWxsYXRpb24sIGAucHNlYCBhc3NvY2lhdGlvbiwgYW5kIGljb24gc2V0dXAgaW5zdHJ1Y3Rpb25zIGluIGBSRUFETUUtV2luZG93cy1QU0UubWRgLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNjogWyMxXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8xKSDigJQgUmVsZWFzZSAyXC4xOFwuMTogU2VudCByZWNpcGllbnRzLCBmb2xkZXIgY2xlYW51cCwgUFNFIGZpbGVzIGFuZCB1cGRhdGUgY2hhbmdlbG9nLiBDb21taXQgW2NiMDJlZmZdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvY2IwMmVmZjE0MGFiZTgxYWIzZDVkOGRjMGEzZDQwZjE4OTNmOGVlNSkuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzEgLS0+Cg==', true) ?: '';
 }
 /* PSE_EMBEDDED_CHANGELOG_END */
 
@@ -16505,6 +17497,7 @@ if (!headers_sent()) {
         folderStatusPolling: false,
         lastFolderStatusCheck: 0,
         folderSyncedAt: new Map(),
+        gmailFolderRevisions: new Map(),
         staleFolders: new Set(),
         newMailFolders: new Set(),
         messageLoads: 0,
@@ -17657,6 +18650,7 @@ if (!headers_sent()) {
         state.staleFolders.clear();
         state.newMailFolders.clear();
         state.folderSyncedAt.clear();
+        state.gmailFolderRevisions.clear();
         state.selectedUid = null;
         state.currentMessage = null;
         state.mobilePane = 'folders';
@@ -18138,13 +19132,13 @@ if (!headers_sent()) {
         );
       }
 
-      async function refreshFolderPageOne(folderId, folderName = '', visibleContext = false) {
+      async function refreshFolderPageOne(folderId, folderName = '', visibleContext = false, preserveVisiblePage = false) {
         const isVisible = String(state.folder) === String(folderId);
         const context = visibleContext && isVisible
           ? {
               folder: state.folder,
               folderName: state.folderName,
-              page: 1,
+              page: preserveVisiblePage ? state.page : 1,
               search: state.search,
               senderFilter: state.senderFilter,
               attachmentFilter: state.attachmentFilter,
@@ -18171,7 +19165,7 @@ if (!headers_sent()) {
         try {
           const result = await api('messages', {
             folder: context.folder,
-            page: 1,
+            page: context.page,
             search: context.search,
             senderFilter: context.senderFilter,
             attachmentFilter: context.attachmentFilter,
@@ -18181,6 +19175,7 @@ if (!headers_sent()) {
             forceRefresh: true
           }, {spinner: false});
 
+          if (result.cache?.refreshError) throw new Error(result.cache.refreshError);
           const data = result.data;
           if (Number(result.cache?.savedAt || 0) > 0) {
             state.folderSyncedAt.set(String(context.folder), Number(result.cache.savedAt) * 1000);
@@ -18193,7 +19188,7 @@ if (!headers_sent()) {
           if (
             isVisible &&
             state.folder === context.folder &&
-            state.page === 1 &&
+            state.page === context.page &&
             state.search === context.search &&
             state.senderFilter === context.senderFilter &&
             state.attachmentFilter === context.attachmentFilter &&
@@ -18246,6 +19241,13 @@ if (!headers_sent()) {
           }
 
           const changedFolders = new Set((result.changedFolders || []).map(String));
+          if (result.gmailHistorySynced) {
+            for (const [folderId, revision] of Object.entries(result.gmailFolderRevisions || {})) {
+              if (state.gmailFolderRevisions.get(folderId) !== String(revision)) changedFolders.add(folderId);
+              state.gmailFolderRevisions.set(folderId, String(revision));
+            }
+            if (state.staleFolders.has(String(state.folder))) changedFolders.add(String(state.folder));
+          }
           const previousCounts = new Map((state.folders || []).map(folder => [
             String(folder.id),
             {
@@ -18258,6 +19260,7 @@ if (!headers_sent()) {
 
           const newMailFolders = [];
           for (const folderId of changedFolders) {
+            invalidateMessageCacheForFolder(folderId);
             const previous = previousCounts.get(folderId);
             const current = state.folders.find(folder => String(folder.id) === folderId);
             const hasNewMail = Boolean(
@@ -18269,31 +19272,35 @@ if (!headers_sent()) {
               newMailFolders.push(folderId);
               state.newMailFolders.add(folderId);
             } else {
-              // Read/unread, delete and move changes remain cache-first until explicit Refresh.
+              // Unopened folders are refreshed when selected; IMAP keeps its cache-first behavior.
               state.staleFolders.add(folderId);
             }
           }
           renderFolders();
 
-          // A real increase in message count means new mail. Refresh that folder automatically
-          // so the new message is immediately available instead of showing a stale warning.
-          for (const folderId of newMailFolders) {
+          const refreshFolders = new Set(newMailFolders);
+          if (result.gmailHistorySynced && changedFolders.has(String(state.folder))) {
+            refreshFolders.add(String(state.folder));
+          }
+          // Gmail history also detects read, move and delete changes at equal counts.
+          for (const folderId of refreshFolders) {
             const folder = state.folders.find(item => String(item.id) === folderId);
             try {
               await refreshFolderPageOne(
                 folderId,
                 folder?.name || '',
-                folderId === String(state.folder)
+                folderId === String(state.folder),
+                Boolean(result.gmailHistorySynced)
               );
             } catch (refreshError) {
-              console.warn('Automatic new-mail refresh failed:', refreshError);
+              console.warn('Automatic mailbox refresh failed:', refreshError);
               state.staleFolders.add(folderId);
-              state.newMailFolders.add(folderId);
+              if (newMailFolders.includes(folderId)) state.newMailFolders.add(folderId);
             }
           }
           renderFolders();
 
-          if (changedFolders.has(String(state.folder)) && !newMailFolders.includes(String(state.folder))) {
+          if (!result.gmailHistorySynced && changedFolders.has(String(state.folder)) && !newMailFolders.includes(String(state.folder))) {
             const syncStatus = $('#lastSyncStatus');
             if (syncStatus) {
               syncStatus.textContent = `${state.folderName || 'Mailbox'} has server changes — press Refresh to synchronize.`;

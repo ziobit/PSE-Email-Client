@@ -2,6 +2,13 @@
 
 Release notes are shown when checking for an update and after an update is installed. Dates in automatically recorded merge entries use UTC. The repository keeps the complete history; the single PHP file bundles the latest notes for offline use.
 
+## 2.18.3 (2026-10-06)
+
+- Gmail accounts now save a per-account `historyId` checkpoint and request mailbox changes since the last successful sync. Unchanged message details, bodies and calendar entries are reused from cache.
+- New mail, read/unread changes, moves, deletions and draft changes update the relevant folders. Background refresh preserves the visible Gmail page and filters, including changes that leave message counts unchanged.
+- Expired Gmail history checkpoints rebuild the requested cached views safely. Interrupted, rate-limited or failed requests preserve the checkpoint and available cached messages for retry.
+- Synchronization coordinates concurrent requests, keeps accounts isolated, and rejects stale cache writes. Local mailbox actions invalidate or update the corresponding cached messages.
+
 ## 2.18.2 (2026-10-06)
 
 - Opening a `.pse` file requests the existing PWA window without reloading it on browsers supporting the Launch Handler API. Multiple files opened together share one window.
