@@ -2,6 +2,12 @@
 
 Release notes are shown when checking for an update and after an update is installed. Dates in automatically recorded merge entries use UTC. The repository keeps the complete history; the single PHP file bundles the latest notes for offline use.
 
+## 2.18.2 (2026-10-06)
+
+- Opening a `.pse` file requests the existing PWA window without reloading it on browsers supporting the Launch Handler API. Multiple files opened together share one window.
+- A new file-launch window goes directly to its local files. Startup folder/message syncing, queued mailbox work, polling, and message prefetch stay paused until Open mailbox or Refresh is chosen. Password sign-in preserves this behavior.
+- Folder cleanup now shows a progress bar, spinner, processed counts, estimated finish time, and Cancel. Estimates adjust after completed batches. Cancellation stops future batches after the current request finishes and preserves the remaining selection for a confirmed resume.
+
 ## 2.18.1 (2026-10-06)
 
 - Added this changelog and automatic maintenance after every merge into `main`, including GitHub merge, squash, and rebase merges.
@@ -20,4 +26,3 @@ Release notes are shown when checking for an update and after an update is insta
 
 ### Merged changes
 - 2026-10-06: [#1](https://github.com/ziobit/PSE-Email-Client/pull/1) — Release 2\.18\.1: Sent recipients, folder cleanup, PSE files and update changelog. Commit [cb02eff](https://github.com/ziobit/PSE-Email-Client/commit/cb02eff140abe81ab3d5d8dc0a3d40f1893f8ee5). <!-- pse-pr:ziobit/PSE-Email-Client#1 -->
-
