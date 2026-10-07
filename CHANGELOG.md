@@ -2,6 +2,12 @@
 
 Release notes are shown when checking for an update and after an update is installed. Dates in automatically recorded merge entries use UTC. The repository keeps the complete history; the single PHP file bundles the latest notes for offline use.
 
+## 2.18.4 (2026-10-07)
+
+- Queuing a deletion immediately removes its rows from the visible folder, including after Gmail history has invalidated the page cache. Read/unread, restore and permanent-delete actions also update visible rows without relying on a cached page.
+- Refreshed lists hide pending queued deletions until they are processed or undone. Optimistic cache updates preserve Gmail revision and view-filter metadata.
+- Background list responses started before a mailbox action cannot replace the updated list. Multi-batch deletion keeps using its original folder when the user navigates elsewhere.
+
 ## 2.18.3 (2026-10-06)
 
 - Gmail accounts now save a per-account `historyId` checkpoint and request mailbox changes since the last successful sync. Unchanged message details, bodies and calendar entries are reused from cache.
