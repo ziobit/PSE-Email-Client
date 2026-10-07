@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.18.3
+ * PSE Email (PSE), release v2.18.4
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.18.3';
+const PSE_VERSION = '2.18.4';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -2539,12 +2539,11 @@ function pseMailCacheDeleteMessages(array $settings, string $folder, array $uids
     if ($removedHere === 0 && $folderAffected === 0) {
       continue;
     }
-    pseMailCacheEnvelopeWrite($file, $envelope['data'], [
-      'folder' => $cacheFolder,
-      'page' => (int)($envelope['page'] ?? 1),
-      'search' => (string)($envelope['search'] ?? ''),
-      'unreadOnly' => !empty($envelope['unreadOnly'])
-    ]);
+    // Keep the view identity and Gmail revision when updating a cached page.
+    // Dropping them makes an unchanged history refresh reject this hidden view.
+    $meta = $envelope;
+    unset($meta['data'], $meta['_removedHere']);
+    pseMailCacheEnvelopeWrite($file, $envelope['data'], $meta);
   }
 
   foreach ($removedByFolder as $affectedFolder => $folderUids) {
@@ -7442,6 +7441,35 @@ function pseActionQueueCount(): int
   }
 }
 
+function pseFilterQueuedDeletedMessages(array $settings, string $folder, array $data): array
+{
+  if (empty($data['messages']) || !is_file(PSE_ACTION_QUEUE_FILE)) return $data;
+  $handle = @fopen(PSE_ACTION_QUEUE_FILE . '.lock', 'c+');
+  if (!$handle) throw new RuntimeException('Unable to read queued deletions.');
+  try {
+    if (!@flock($handle, LOCK_SH)) throw new RuntimeException('Unable to read queued deletions.');
+    $queue = pseReadJson(PSE_ACTION_QUEUE_FILE, []);
+  } finally {
+    @flock($handle, LOCK_UN);
+    fclose($handle);
+  }
+  $gmail = pseIsGmailAccount($settings);
+  $pending = [];
+  foreach ($queue as $action) {
+    if (!is_array($action) ||
+        (string)($action['action'] ?? '') !== 'delete' ||
+        (string)($action['account_id'] ?? '') !== (string)$settings['account_id'] ||
+        (!$gmail && (string)($action['folder'] ?? '') !== $folder)) continue;
+    $pending[(string)($action['uid'] ?? '')] = true;
+  }
+  if (!empty($pending)) {
+    $data['messages'] = array_values(array_filter($data['messages'], function (array $message) use ($pending): bool {
+      return !isset($pending[(string)($message['uid'] ?? '')]);
+    }));
+  }
+  return $data;
+}
+
 function pseNormalizeQueuedUids(array $settings, array $uids): array
 {
   $gmail = pseIsGmailAccount($settings);
@@ -10462,7 +10490,7 @@ function pseApplyClientAppearanceSettings(array $settings, $raw): array
 /* PSE_EMBEDDED_CHANGELOG_START */
 function pseBundledChangelogText(): string
 {
-  return base64_decode('IyBQU0UgRW1haWwgQ2xpZW50IGNoYW5nZWxvZwoKUmVsZWFzZSBub3RlcyBhcmUgc2hvd24gd2hlbiBjaGVja2luZyBmb3IgYW4gdXBkYXRlIGFuZCBhZnRlciBhbiB1cGRhdGUgaXMgaW5zdGFsbGVkLiBEYXRlcyBpbiBhdXRvbWF0aWNhbGx5IHJlY29yZGVkIG1lcmdlIGVudHJpZXMgdXNlIFVUQy4gVGhlIHJlcG9zaXRvcnkga2VlcHMgdGhlIGNvbXBsZXRlIGhpc3Rvcnk7IHRoZSBzaW5nbGUgUEhQIGZpbGUgYnVuZGxlcyB0aGUgbGF0ZXN0IG5vdGVzIGZvciBvZmZsaW5lIHVzZS4KCiMjIDIuMTguMyAoMjAyNi0xMC0wNikKCi0gR21haWwgYWNjb3VudHMgbm93IHNhdmUgYSBwZXItYWNjb3VudCBgaGlzdG9yeUlkYCBjaGVja3BvaW50IGFuZCByZXF1ZXN0IG1haWxib3ggY2hhbmdlcyBzaW5jZSB0aGUgbGFzdCBzdWNjZXNzZnVsIHN5bmMuIFVuY2hhbmdlZCBtZXNzYWdlIGRldGFpbHMsIGJvZGllcyBhbmQgY2FsZW5kYXIgZW50cmllcyBhcmUgcmV1c2VkIGZyb20gY2FjaGUuCi0gTmV3IG1haWwsIHJlYWQvdW5yZWFkIGNoYW5nZXMsIG1vdmVzLCBkZWxldGlvbnMgYW5kIGRyYWZ0IGNoYW5nZXMgdXBkYXRlIHRoZSByZWxldmFudCBmb2xkZXJzLiBCYWNrZ3JvdW5kIHJlZnJlc2ggcHJlc2VydmVzIHRoZSB2aXNpYmxlIEdtYWlsIHBhZ2UgYW5kIGZpbHRlcnMsIGluY2x1ZGluZyBjaGFuZ2VzIHRoYXQgbGVhdmUgbWVzc2FnZSBjb3VudHMgdW5jaGFuZ2VkLgotIEV4cGlyZWQgR21haWwgaGlzdG9yeSBjaGVja3BvaW50cyByZWJ1aWxkIHRoZSByZXF1ZXN0ZWQgY2FjaGVkIHZpZXdzIHNhZmVseS4gSW50ZXJydXB0ZWQsIHJhdGUtbGltaXRlZCBvciBmYWlsZWQgcmVxdWVzdHMgcHJlc2VydmUgdGhlIGNoZWNrcG9pbnQgYW5kIGF2YWlsYWJsZSBjYWNoZWQgbWVzc2FnZXMgZm9yIHJldHJ5LgotIFN5bmNocm9uaXphdGlvbiBjb29yZGluYXRlcyBjb25jdXJyZW50IHJlcXVlc3RzLCBrZWVwcyBhY2NvdW50cyBpc29sYXRlZCwgYW5kIHJlamVjdHMgc3RhbGUgY2FjaGUgd3JpdGVzLiBMb2NhbCBtYWlsYm94IGFjdGlvbnMgaW52YWxpZGF0ZSBvciB1cGRhdGUgdGhlIGNvcnJlc3BvbmRpbmcgY2FjaGVkIG1lc3NhZ2VzLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNjogWyMzXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8zKSDigJQgUmVsZWFzZSAyXC4xOFwuMzogaW5jcmVtZW50YWwgR21haWwgc3luYyB1c2luZyBoaXN0b3J5SWQuIENvbW1pdCBbNjdmMzgxNF0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC82N2YzODE0ZjA1OWIyMWE3MWYwYmIyOGQ2MDRkM2VmNzk3NjM3NzViKS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjMyAtLT4KCiMjIDIuMTguMiAoMjAyNi0xMC0wNikKCi0gT3BlbmluZyBhIGAucHNlYCBmaWxlIHJlcXVlc3RzIHRoZSBleGlzdGluZyBQV0Egd2luZG93IHdpdGhvdXQgcmVsb2FkaW5nIGl0IG9uIGJyb3dzZXJzIHN1cHBvcnRpbmcgdGhlIExhdW5jaCBIYW5kbGVyIEFQSS4gTXVsdGlwbGUgZmlsZXMgb3BlbmVkIHRvZ2V0aGVyIHNoYXJlIG9uZSB3aW5kb3cuCi0gQSBuZXcgZmlsZS1sYXVuY2ggd2luZG93IGdvZXMgZGlyZWN0bHkgdG8gaXRzIGxvY2FsIGZpbGVzLiBTdGFydHVwIGZvbGRlci9tZXNzYWdlIHN5bmNpbmcsIHF1ZXVlZCBtYWlsYm94IHdvcmssIHBvbGxpbmcsIGFuZCBtZXNzYWdlIHByZWZldGNoIHN0YXkgcGF1c2VkIHVudGlsIE9wZW4gbWFpbGJveCBvciBSZWZyZXNoIGlzIGNob3Nlbi4gUGFzc3dvcmQgc2lnbi1pbiBwcmVzZXJ2ZXMgdGhpcyBiZWhhdmlvci4KLSBGb2xkZXIgY2xlYW51cCBub3cgc2hvd3MgYSBwcm9ncmVzcyBiYXIsIHNwaW5uZXIsIHByb2Nlc3NlZCBjb3VudHMsIGVzdGltYXRlZCBmaW5pc2ggdGltZSwgYW5kIENhbmNlbC4gRXN0aW1hdGVzIGFkanVzdCBhZnRlciBjb21wbGV0ZWQgYmF0Y2hlcy4gQ2FuY2VsbGF0aW9uIHN0b3BzIGZ1dHVyZSBiYXRjaGVzIGFmdGVyIHRoZSBjdXJyZW50IHJlcXVlc3QgZmluaXNoZXMgYW5kIHByZXNlcnZlcyB0aGUgcmVtYWluaW5nIHNlbGVjdGlvbiBmb3IgYSBjb25maXJtZWQgcmVzdW1lLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNjogWyMyXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8yKSDigJQgUmVsZWFzZSAyXC4xOFwuMjogZmFzdCBQU0UgZmlsZSBsYXVuY2hlcyBhbmQgY2FuY2VsbGFibGUgY2xlYW51cCBwcm9ncmVzcy4gQ29tbWl0IFs3ODhiZDIyXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0Lzc4OGJkMjI0ZmZjODcxMDE4YzkwNDBjNGRiMGJkNzM4ZGQ4YzU1YzUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMyIC0tPgoKIyMgMi4xOC4xICgyMDI2LTEwLTA2KQoKLSBBZGRlZCB0aGlzIGNoYW5nZWxvZyBhbmQgYXV0b21hdGljIG1haW50ZW5hbmNlIGFmdGVyIGV2ZXJ5IG1lcmdlIGludG8gYG1haW5gLCBpbmNsdWRpbmcgR2l0SHViIG1lcmdlLCBzcXVhc2gsIGFuZCByZWJhc2UgbWVyZ2VzLgotIEVhY2ggbWVyZ2UgcHVibGlzaGVzIGEgbmV3IGFwcCB2ZXJzaW9uIGF1dG9tYXRpY2FsbHkgaWYgaXRzIGNoYW5nZXMgZG8gbm90IGFscmVhZHkgaW5jbHVkZSBhIGhpZ2hlciB2ZXJzaW9uIG51bWJlci4KLSBUaGUgdXBkYXRlIGRpYWxvZyBwcmVzZW50cyByZWxlYXNlIG5vdGVzIGJlZm9yZSBpbnN0YWxsYXRpb24gYW5kIGFnYWluIGFmdGVyIGEgc3VjY2Vzc2Z1bCB1cGRhdGUuIE5vdGVzIGFyZSBwaW5uZWQgdG8gdGhlIHNhbWUgc291cmNlIHJldmlzaW9uIGFzIHRoZSBkb3dubG9hZGVkIFBIUCBmaWxlLgotIFRoZSBQSFAgZmlsZSBpbmNsdWRlcyBidW5kbGVkIHJlbGVhc2Ugbm90ZXMgc28gZGVwbG95bWVudCBjb250aW51ZXMgdG8gcmVxdWlyZSBvbmx5IGBpbmRleC5waHBgLgoKIyMjIFNlbnQsIGZvbGRlciBjbGVhbnVwIGFuZCBXaW5kb3dzIGZpbGVzCgotIFNlbnQtZm9sZGVyIHJvd3MgYW5kIGNhbGVuZGFyIGVudHJpZXMgc2hvdyByZWNpcGllbnQgbmFtZXMgYW5kIGFkZHJlc3Nlcywgd2l0aCBDYy9CY2MgZmFsbGJhY2sgd2hlbiBUbyBpcyBlbXB0eS4gU2VuZGVyIGRldGFpbHMgcmVtYWluIGF2YWlsYWJsZSBmb3IgcmVwbGllcyBhbmQgc2VuZGVyIGZpbHRlcmluZy4KLSBBZGRlZCBhIHJlZCBjbGVhbnVwIGJpbiBhZnRlciBlYWNoIGZvbGRlcidzIHVucmVhZCBjb3VudC4gQ2hvb3NlIG9uZSB3ZWVrLCBvbmUgbW9udGgsIHR3byBtb250aHMsIGFsbCBtZXNzYWdlcywgb3IgYSBjdXN0b20gZGF0ZTsgY3V0b2ZmIGRhdGVzIGFyZSBpbmNsdXNpdmUgYW5kIGRpc3BsYXllZCBpbiB0aGUgY29uZmlndXJlZCBhY2NvdW50IHRpbWV6b25lLgotIEZvbGRlciBjbGVhbnVwIHByZXZpZXdzIGFsbCBtYXRjaGluZyBtZXNzYWdlcyBhbmQgYWx3YXlzIHJlcXVpcmVzIHR5cGluZyBgWUVTIERFTEVURSBBTExgLiBTZXJ2ZXIgc25hcHNob3RzIGJpbmQgdGhlIG9wZXJhdGlvbiB0byB0aGUgYWNjb3VudCwgZm9sZGVyLCBzZWxlY3RlZCBtZXNzYWdlcywgYW5kIGRlc3RpbmF0aW9uOyBiYXRjaGVzIGNhbiByZXN1bWUgYWZ0ZXIgYSBmYWlsZWQgcmVxdWVzdC4KLSBDbGVhbnVwIG5vcm1hbGx5IG1vdmVzIG1lc3NhZ2VzIHRvIFRyYXNoLiBDbGVhbmluZyBUcmFzaCwgb3IgYW4gSU1BUCBhY2NvdW50IHdpdGhvdXQgYSBkZXRlY3RlZCBUcmFzaCBmb2xkZXIsIGRlbGV0ZXMgcGVybWFuZW50bHk7IHRoZSBjb25maXJtYXRpb24gZXhwbGFpbnMgd2hpY2ggb3BlcmF0aW9uIGFwcGxpZXMuCi0gQWRkZWQgYmxhY2stY2F0IGFwcGxpY2F0aW9uIGFuZCBkb2N1bWVudCBpY29ucywgYSBXaW5kb3dzIGAuaWNvYCwgcG9ydGFibGUgYC5wc2VgIGVtYWlsIGFuZCBkcmFmdCBmaWxlcywgYW5kIGxvY2FsLWZpbGUgb3BlbmluZyB3aXRoIFJlcGx5LCBSZXBseSBhbGwsIEZvcndhcmQsIGFuZCBFZGl0IGNvcHkuCi0gQWRkZWQgV2luZG93cyBhcHAgaW5zdGFsbGF0aW9uLCBgLnBzZWAgYXNzb2NpYXRpb24sIGFuZCBpY29uIHNldHVwIGluc3RydWN0aW9ucyBpbiBgUkVBRE1FLVdpbmRvd3MtUFNFLm1kYC4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMDY6IFsjMV0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvMSkg4oCUIFJlbGVhc2UgMlwuMThcLjE6IFNlbnQgcmVjaXBpZW50cywgZm9sZGVyIGNsZWFudXAsIFBTRSBmaWxlcyBhbmQgdXBkYXRlIGNoYW5nZWxvZy4gQ29tbWl0IFtjYjAyZWZmXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0L2NiMDJlZmYxNDBhYmU4MWFiM2Q1ZDhkYzBhM2Q0MGYxODkzZjhlZTUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMxIC0tPgo=', true) ?: '';
+  return base64_decode('IyBQU0UgRW1haWwgQ2xpZW50IGNoYW5nZWxvZwoKUmVsZWFzZSBub3RlcyBhcmUgc2hvd24gd2hlbiBjaGVja2luZyBmb3IgYW4gdXBkYXRlIGFuZCBhZnRlciBhbiB1cGRhdGUgaXMgaW5zdGFsbGVkLiBEYXRlcyBpbiBhdXRvbWF0aWNhbGx5IHJlY29yZGVkIG1lcmdlIGVudHJpZXMgdXNlIFVUQy4gVGhlIHJlcG9zaXRvcnkga2VlcHMgdGhlIGNvbXBsZXRlIGhpc3Rvcnk7IHRoZSBzaW5nbGUgUEhQIGZpbGUgYnVuZGxlcyB0aGUgbGF0ZXN0IG5vdGVzIGZvciBvZmZsaW5lIHVzZS4KCiMjIDIuMTguNCAoMjAyNi0xMC0wNykKCi0gUXVldWluZyBhIGRlbGV0aW9uIGltbWVkaWF0ZWx5IHJlbW92ZXMgaXRzIHJvd3MgZnJvbSB0aGUgdmlzaWJsZSBmb2xkZXIsIGluY2x1ZGluZyBhZnRlciBHbWFpbCBoaXN0b3J5IGhhcyBpbnZhbGlkYXRlZCB0aGUgcGFnZSBjYWNoZS4gUmVhZC91bnJlYWQsIHJlc3RvcmUgYW5kIHBlcm1hbmVudC1kZWxldGUgYWN0aW9ucyBhbHNvIHVwZGF0ZSB2aXNpYmxlIHJvd3Mgd2l0aG91dCByZWx5aW5nIG9uIGEgY2FjaGVkIHBhZ2UuCi0gUmVmcmVzaGVkIGxpc3RzIGhpZGUgcGVuZGluZyBxdWV1ZWQgZGVsZXRpb25zIHVudGlsIHRoZXkgYXJlIHByb2Nlc3NlZCBvciB1bmRvbmUuIE9wdGltaXN0aWMgY2FjaGUgdXBkYXRlcyBwcmVzZXJ2ZSBHbWFpbCByZXZpc2lvbiBhbmQgdmlldy1maWx0ZXIgbWV0YWRhdGEuCi0gQmFja2dyb3VuZCBsaXN0IHJlc3BvbnNlcyBzdGFydGVkIGJlZm9yZSBhIG1haWxib3ggYWN0aW9uIGNhbm5vdCByZXBsYWNlIHRoZSB1cGRhdGVkIGxpc3QuIE11bHRpLWJhdGNoIGRlbGV0aW9uIGtlZXBzIHVzaW5nIGl0cyBvcmlnaW5hbCBmb2xkZXIgd2hlbiB0aGUgdXNlciBuYXZpZ2F0ZXMgZWxzZXdoZXJlLgoKIyMgMi4xOC4zICgyMDI2LTEwLTA2KQoKLSBHbWFpbCBhY2NvdW50cyBub3cgc2F2ZSBhIHBlci1hY2NvdW50IGBoaXN0b3J5SWRgIGNoZWNrcG9pbnQgYW5kIHJlcXVlc3QgbWFpbGJveCBjaGFuZ2VzIHNpbmNlIHRoZSBsYXN0IHN1Y2Nlc3NmdWwgc3luYy4gVW5jaGFuZ2VkIG1lc3NhZ2UgZGV0YWlscywgYm9kaWVzIGFuZCBjYWxlbmRhciBlbnRyaWVzIGFyZSByZXVzZWQgZnJvbSBjYWNoZS4KLSBOZXcgbWFpbCwgcmVhZC91bnJlYWQgY2hhbmdlcywgbW92ZXMsIGRlbGV0aW9ucyBhbmQgZHJhZnQgY2hhbmdlcyB1cGRhdGUgdGhlIHJlbGV2YW50IGZvbGRlcnMuIEJhY2tncm91bmQgcmVmcmVzaCBwcmVzZXJ2ZXMgdGhlIHZpc2libGUgR21haWwgcGFnZSBhbmQgZmlsdGVycywgaW5jbHVkaW5nIGNoYW5nZXMgdGhhdCBsZWF2ZSBtZXNzYWdlIGNvdW50cyB1bmNoYW5nZWQuCi0gRXhwaXJlZCBHbWFpbCBoaXN0b3J5IGNoZWNrcG9pbnRzIHJlYnVpbGQgdGhlIHJlcXVlc3RlZCBjYWNoZWQgdmlld3Mgc2FmZWx5LiBJbnRlcnJ1cHRlZCwgcmF0ZS1saW1pdGVkIG9yIGZhaWxlZCByZXF1ZXN0cyBwcmVzZXJ2ZSB0aGUgY2hlY2twb2ludCBhbmQgYXZhaWxhYmxlIGNhY2hlZCBtZXNzYWdlcyBmb3IgcmV0cnkuCi0gU3luY2hyb25pemF0aW9uIGNvb3JkaW5hdGVzIGNvbmN1cnJlbnQgcmVxdWVzdHMsIGtlZXBzIGFjY291bnRzIGlzb2xhdGVkLCBhbmQgcmVqZWN0cyBzdGFsZSBjYWNoZSB3cml0ZXMuIExvY2FsIG1haWxib3ggYWN0aW9ucyBpbnZhbGlkYXRlIG9yIHVwZGF0ZSB0aGUgY29ycmVzcG9uZGluZyBjYWNoZWQgbWVzc2FnZXMuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTA2OiBbIzNdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzMpIOKAlCBSZWxlYXNlIDJcLjE4XC4zOiBpbmNyZW1lbnRhbCBHbWFpbCBzeW5jIHVzaW5nIGhpc3RvcnlJZC4gQ29tbWl0IFs2N2YzODE0XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0LzY3ZjM4MTRmMDU5YjIxYTcxZjBiYjI4ZDYwNGQzZWY3OTc2Mzc3NWIpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMzIC0tPgoKIyMgMi4xOC4yICgyMDI2LTEwLTA2KQoKLSBPcGVuaW5nIGEgYC5wc2VgIGZpbGUgcmVxdWVzdHMgdGhlIGV4aXN0aW5nIFBXQSB3aW5kb3cgd2l0aG91dCByZWxvYWRpbmcgaXQgb24gYnJvd3NlcnMgc3VwcG9ydGluZyB0aGUgTGF1bmNoIEhhbmRsZXIgQVBJLiBNdWx0aXBsZSBmaWxlcyBvcGVuZWQgdG9nZXRoZXIgc2hhcmUgb25lIHdpbmRvdy4KLSBBIG5ldyBmaWxlLWxhdW5jaCB3aW5kb3cgZ29lcyBkaXJlY3RseSB0byBpdHMgbG9jYWwgZmlsZXMuIFN0YXJ0dXAgZm9sZGVyL21lc3NhZ2Ugc3luY2luZywgcXVldWVkIG1haWxib3ggd29yaywgcG9sbGluZywgYW5kIG1lc3NhZ2UgcHJlZmV0Y2ggc3RheSBwYXVzZWQgdW50aWwgT3BlbiBtYWlsYm94IG9yIFJlZnJlc2ggaXMgY2hvc2VuLiBQYXNzd29yZCBzaWduLWluIHByZXNlcnZlcyB0aGlzIGJlaGF2aW9yLgotIEZvbGRlciBjbGVhbnVwIG5vdyBzaG93cyBhIHByb2dyZXNzIGJhciwgc3Bpbm5lciwgcHJvY2Vzc2VkIGNvdW50cywgZXN0aW1hdGVkIGZpbmlzaCB0aW1lLCBhbmQgQ2FuY2VsLiBFc3RpbWF0ZXMgYWRqdXN0IGFmdGVyIGNvbXBsZXRlZCBiYXRjaGVzLiBDYW5jZWxsYXRpb24gc3RvcHMgZnV0dXJlIGJhdGNoZXMgYWZ0ZXIgdGhlIGN1cnJlbnQgcmVxdWVzdCBmaW5pc2hlcyBhbmQgcHJlc2VydmVzIHRoZSByZW1haW5pbmcgc2VsZWN0aW9uIGZvciBhIGNvbmZpcm1lZCByZXN1bWUuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTA2OiBbIzJdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzIpIOKAlCBSZWxlYXNlIDJcLjE4XC4yOiBmYXN0IFBTRSBmaWxlIGxhdW5jaGVzIGFuZCBjYW5jZWxsYWJsZSBjbGVhbnVwIHByb2dyZXNzLiBDb21taXQgWzc4OGJkMjJdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvNzg4YmQyMjRmZmM4NzEwMThjOTA0MGM0ZGIwYmQ3MzhkZDhjNTVjNSkuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzIgLS0+CgojIyAyLjE4LjEgKDIwMjYtMTAtMDYpCgotIEFkZGVkIHRoaXMgY2hhbmdlbG9nIGFuZCBhdXRvbWF0aWMgbWFpbnRlbmFuY2UgYWZ0ZXIgZXZlcnkgbWVyZ2UgaW50byBgbWFpbmAsIGluY2x1ZGluZyBHaXRIdWIgbWVyZ2UsIHNxdWFzaCwgYW5kIHJlYmFzZSBtZXJnZXMuCi0gRWFjaCBtZXJnZSBwdWJsaXNoZXMgYSBuZXcgYXBwIHZlcnNpb24gYXV0b21hdGljYWxseSBpZiBpdHMgY2hhbmdlcyBkbyBub3QgYWxyZWFkeSBpbmNsdWRlIGEgaGlnaGVyIHZlcnNpb24gbnVtYmVyLgotIFRoZSB1cGRhdGUgZGlhbG9nIHByZXNlbnRzIHJlbGVhc2Ugbm90ZXMgYmVmb3JlIGluc3RhbGxhdGlvbiBhbmQgYWdhaW4gYWZ0ZXIgYSBzdWNjZXNzZnVsIHVwZGF0ZS4gTm90ZXMgYXJlIHBpbm5lZCB0byB0aGUgc2FtZSBzb3VyY2UgcmV2aXNpb24gYXMgdGhlIGRvd25sb2FkZWQgUEhQIGZpbGUuCi0gVGhlIFBIUCBmaWxlIGluY2x1ZGVzIGJ1bmRsZWQgcmVsZWFzZSBub3RlcyBzbyBkZXBsb3ltZW50IGNvbnRpbnVlcyB0byByZXF1aXJlIG9ubHkgYGluZGV4LnBocGAuCgojIyMgU2VudCwgZm9sZGVyIGNsZWFudXAgYW5kIFdpbmRvd3MgZmlsZXMKCi0gU2VudC1mb2xkZXIgcm93cyBhbmQgY2FsZW5kYXIgZW50cmllcyBzaG93IHJlY2lwaWVudCBuYW1lcyBhbmQgYWRkcmVzc2VzLCB3aXRoIENjL0JjYyBmYWxsYmFjayB3aGVuIFRvIGlzIGVtcHR5LiBTZW5kZXIgZGV0YWlscyByZW1haW4gYXZhaWxhYmxlIGZvciByZXBsaWVzIGFuZCBzZW5kZXIgZmlsdGVyaW5nLgotIEFkZGVkIGEgcmVkIGNsZWFudXAgYmluIGFmdGVyIGVhY2ggZm9sZGVyJ3MgdW5yZWFkIGNvdW50LiBDaG9vc2Ugb25lIHdlZWssIG9uZSBtb250aCwgdHdvIG1vbnRocywgYWxsIG1lc3NhZ2VzLCBvciBhIGN1c3RvbSBkYXRlOyBjdXRvZmYgZGF0ZXMgYXJlIGluY2x1c2l2ZSBhbmQgZGlzcGxheWVkIGluIHRoZSBjb25maWd1cmVkIGFjY291bnQgdGltZXpvbmUuCi0gRm9sZGVyIGNsZWFudXAgcHJldmlld3MgYWxsIG1hdGNoaW5nIG1lc3NhZ2VzIGFuZCBhbHdheXMgcmVxdWlyZXMgdHlwaW5nIGBZRVMgREVMRVRFIEFMTGAuIFNlcnZlciBzbmFwc2hvdHMgYmluZCB0aGUgb3BlcmF0aW9uIHRvIHRoZSBhY2NvdW50LCBmb2xkZXIsIHNlbGVjdGVkIG1lc3NhZ2VzLCBhbmQgZGVzdGluYXRpb247IGJhdGNoZXMgY2FuIHJlc3VtZSBhZnRlciBhIGZhaWxlZCByZXF1ZXN0LgotIENsZWFudXAgbm9ybWFsbHkgbW92ZXMgbWVzc2FnZXMgdG8gVHJhc2guIENsZWFuaW5nIFRyYXNoLCBvciBhbiBJTUFQIGFjY291bnQgd2l0aG91dCBhIGRldGVjdGVkIFRyYXNoIGZvbGRlciwgZGVsZXRlcyBwZXJtYW5lbnRseTsgdGhlIGNvbmZpcm1hdGlvbiBleHBsYWlucyB3aGljaCBvcGVyYXRpb24gYXBwbGllcy4KLSBBZGRlZCBibGFjay1jYXQgYXBwbGljYXRpb24gYW5kIGRvY3VtZW50IGljb25zLCBhIFdpbmRvd3MgYC5pY29gLCBwb3J0YWJsZSBgLnBzZWAgZW1haWwgYW5kIGRyYWZ0IGZpbGVzLCBhbmQgbG9jYWwtZmlsZSBvcGVuaW5nIHdpdGggUmVwbHksIFJlcGx5IGFsbCwgRm9yd2FyZCwgYW5kIEVkaXQgY29weS4KLSBBZGRlZCBXaW5kb3dzIGFwcCBpbnN0YWxsYXRpb24sIGAucHNlYCBhc3NvY2lhdGlvbiwgYW5kIGljb24gc2V0dXAgaW5zdHJ1Y3Rpb25zIGluIGBSRUFETUUtV2luZG93cy1QU0UubWRgLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNjogWyMxXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8xKSDigJQgUmVsZWFzZSAyXC4xOFwuMTogU2VudCByZWNpcGllbnRzLCBmb2xkZXIgY2xlYW51cCwgUFNFIGZpbGVzIGFuZCB1cGRhdGUgY2hhbmdlbG9nLiBDb21taXQgW2NiMDJlZmZdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvY2IwMmVmZjE0MGFiZTgxYWIzZDVkOGRjMGEzZDQwZjE4OTNmOGVlNSkuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzEgLS0+Cg==', true) ?: '';
 }
 /* PSE_EMBEDDED_CHANGELOG_END */
 
@@ -11023,7 +11051,9 @@ function pseHandleAjax(string $action, array $settings): void
       );
       pseJson([
         'ok' => true,
-        'data' => $messagesResult['data'],
+        'data' => is_array($messagesResult['data'])
+          ? pseFilterQueuedDeletedMessages($settings, $folder, $messagesResult['data'])
+          : $messagesResult['data'],
         'cache' => $messagesResult['cache'],
         'cacheMiss' => !empty($messagesResult['cacheMiss'])
       ]);
@@ -19133,6 +19163,7 @@ if (!headers_sent()) {
       }
 
       async function refreshFolderPageOne(folderId, folderName = '', visibleContext = false, preserveVisiblePage = false) {
+        const requestSerial = state.messageRequestSerial;
         const isVisible = String(state.folder) === String(folderId);
         const context = visibleContext && isVisible
           ? {
@@ -19175,6 +19206,7 @@ if (!headers_sent()) {
             forceRefresh: true
           }, {spinner: false});
 
+          if (requestSerial !== state.messageRequestSerial) return result.data;
           if (result.cache?.refreshError) throw new Error(result.cache.refreshError);
           const data = result.data;
           if (Number(result.cache?.savedAt || 0) > 0) {
@@ -20228,6 +20260,7 @@ if (!headers_sent()) {
       }
 
       function applyKnownBulkOperation(uids, operation, affected = uids.length) {
+        state.messageRequestSerial++;
         const selected = new Set(uids.map(String));
         const selectedMessages = state.messages.filter(message => selected.has(String(message.uid)));
         const unreadBefore = selectedMessages.filter(message => !message.seen).length;
@@ -20264,9 +20297,22 @@ if (!headers_sent()) {
           }
         }
 
+        // The visible page may outlive its cache after a Gmail history update.
+        // Apply the action to that page even when no current cache entry exists.
+        if (removesFromCurrentFolder) {
+          state.messages = state.messages.filter(message => !selected.has(String(message.uid)));
+        } else {
+          selectedMessages.forEach(message => { message.seen = operation === 'read'; });
+        }
+
         for (const data of state.messageCache.values()) {
-          if (data._folder !== state.folder) continue;
           const cachedMatches = data.messages.filter(message => selected.has(String(message.uid)));
+          if (data._folder !== state.folder) {
+            if (removesFromCurrentFolder && cachedMatches.length && initialSettings.account_type === 'gmail') {
+              invalidateMessageCacheForFolder(data._folder);
+            }
+            continue;
+          }
           if (removesFromCurrentFolder) {
             data.messages = data.messages.filter(message => !selected.has(String(message.uid)));
             const removed = cachedMatches.length;
@@ -20455,6 +20501,7 @@ if (!headers_sent()) {
       async function queueDeleteMessages(uids, confirmation = '') {
         uids = [...new Set((uids || []).map(String).filter(Boolean))];
         if (!uids.length) return;
+        const folder = state.folder;
         const deletingCurrent = Boolean(
           state.currentMessage && uids.includes(String(state.currentMessage.uid))
         );
@@ -20474,7 +20521,7 @@ if (!headers_sent()) {
           let pending = state.pendingQueue;
           for (const uidChunk of chunkUids(uids)) {
             const result = await api('queue_delete', {
-              folder: state.folder,
+              folder,
               uids: uidChunk,
               confirmation
             }, {
