@@ -8,6 +8,9 @@ Release notes are shown when checking for an update and after an update is insta
 - Refreshed lists hide pending queued deletions until they are processed or undone. Optimistic cache updates preserve Gmail revision and view-filter metadata.
 - Background list responses started before a mailbox action cannot replace the updated list. Multi-batch deletion keeps using its original folder when the user navigates elsewhere.
 
+### Merged changes
+- 2026-10-07: [#4](https://github.com/ziobit/PSE-Email-Client/pull/4) — Release 2\.18\.4: remove queued deletions from message lists immediately. Commit [327ab05](https://github.com/ziobit/PSE-Email-Client/commit/327ab059acf6f4f3d74f86278a4cafd1d2c668ec). <!-- pse-pr:ziobit/PSE-Email-Client#4 -->
+
 ## 2.18.3 (2026-10-06)
 
 - Gmail accounts now save a per-account `historyId` checkpoint and request mailbox changes since the last successful sync. Unchanged message details, bodies and calendar entries are reused from cache.
