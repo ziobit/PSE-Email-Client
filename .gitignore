@@ -1,6 +1,7 @@
 /pse_data/
 /icon.png
 /node_modules/
+/tests/node_modules/
 /package-lock.json
 __pycache__/
 *.pyc

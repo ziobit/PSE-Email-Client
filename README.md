@@ -36,22 +36,21 @@ Date-based cleanup skips IMAP messages with unreadable dates. Delete all include
 
 ## Verification
 
-The regression suites use fixture mailboxes and never connect to a live account or delete real email:
+The **PSE regression tests** workflow in [.github/workflows/regression.yml](.github/workflows/regression.yml) runs on every pull request, push to `main`, merge-queue check and manual dispatch. It runs PHP syntax checks and every top-level PHP regression suite on **PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 and 8.5**, preserving the advertised PHP 7.4+ compatibility. The separate client job uses **Node.js 24** and PHP 8.5, plus the runner's Python 3, for JavaScript, PWA/icon and changelog-generator checks.
+
+Coverage includes Gmail `historyId` synchronization and mutations, message/list caches, queued deletions, Sent recipients, cancellable folder cleanup, update/changelog behavior, portable local files, PWA manifests and file launches. JavaScript checks also compile the real setup, login and authenticated page scripts and PWA service worker in temporary application copies. These checks do not fetch CDN assets or execute the rendered page scripts.
+
+Dependencies are downloaded before tests run. Each test command then executes inside a fresh Linux network namespace with only loopback, and the runner verifies that isolation before starting. Tests cannot reach Google, IMAP, SMTP or any other external service. They use simulated mailboxes, disposable storage and no credentials or Actions secrets. PHP runs with `-n` (no deployment `php.ini`), only JSON/tokenizer added when needed, no native IMAP/cURL, URL wrappers disabled and mail/socket connection functions disabled. Each fixture process receives a minimal environment and its own temporary directory.
+
+The only npm dependency is test-only `jsdom`, pinned with `tests/package-lock.json`; CI uses `npm ci --ignore-scripts` and caches downloads. Deployment still requires only `index.php`. PHP versions run in parallel, without coverage tooling; newer runs cancel obsolete runs, jobs time out after ten minutes, and individual checks time out after ninety seconds. The runner discovers all top-level `tests/*.php`, `tests/*.cjs` and `tests/*.py` files, so new suites join CI automatically. Put helper fixtures in `tests/fixtures/`.
+
+Failures appear as PR annotations, named log groups and per-job summary tables. The **Regression gate** job always evaluates the PHP matrix and client job and fails if either failed, was cancelled or was skipped. In the `main` branch protection/ruleset, enable **Require status checks to pass** and select the exact check name **`Regression gate`** (workflow: **PSE regression tests**). Its name stays stable when PHP versions are added. No path filters or optional failure allowances bypass the gate. This workflow does not change repository protection settings or the merge-changelog workflow.
+
+To run the same checks locally, install PHP with JSON/tokenizer, Node.js 24.15+ and Python 3. On Linux with `sudo` and `unshare`, use:
 
 ```bash
-php -l index.php
-php tests/sent-recipients.php
-php tests/folder-cleanup.php
-php tests/update-changelog.php
-php tests/pwa-launch-manifest.php
-php tests/pse-file-launch-server.php
-node tests/folder-cleanup-ui.cjs
-node tests/pse-file-launch.cjs
-node tests/update-changelog-ui.cjs
-python tests/icon-assets.py
-python tests/changelog-generator.py
-npm install --no-save jsdom
-node tests/local-pse-files.cjs
+npm ci --prefix tests --ignore-scripts --no-audit --no-fund
+sudo unshare --net -- env "PATH=$PATH" python3 scripts/run-regressions.py all --require-offline
 ```
 
-PHP fixture extraction requires the tokenizer extension. The local-file DOM test uses Node.js 20+ and the test-only `jsdom` package. Real account/provider behavior and Windows double-click registration/icon appearance also need manual deployment checks.
+For environments without Linux network namespaces, `python3 scripts/run-regressions.py all` still runs the fixture suites with isolated PHP configuration and temporary storage, but does not enforce OS-level network isolation. Use `php`, `client` or `python` instead of `all` to run one group. Real account/provider behavior and Windows double-click registration/icon appearance still need manual deployment checks.

@@ -112,10 +112,10 @@ Documentation checked October 6, 2026. Installation/default-app labels can vary 
 
 ## Developer verification
 
-The production app remains one PHP file. The DOM/security test uses `jsdom` as a test-only dependency:
+The production app remains one PHP file. The DOM/security test uses Node.js 24.15+ and the locked `jsdom` test-only dependency:
 
 ```bash
-npm install --no-save jsdom
+npm ci --prefix tests --ignore-scripts --no-audit --no-fund
 node tests/local-pse-files.cjs
 ```
 

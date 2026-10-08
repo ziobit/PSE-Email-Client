@@ -1,6 +1,6 @@
 'use strict';
 
-// Test-only dependency: npm install --no-save jsdom
+// Test-only dependency: npm ci --prefix tests --ignore-scripts
 // Run with NODE_PATH pointing at the directory containing jsdom, when necessary.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

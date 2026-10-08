@@ -1,0 +1,106 @@
+name: PSE regression tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pse-regression-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+    steps:
+      - name: Check out the code under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, tokenizer
+          coverage: none
+          tools: none
+
+      # Dependency downloads finish before tests enter an empty network namespace.
+      # Never run PR code with pull_request_target or pass mailbox credentials.
+      - name: PHP syntax and offline backend/PWA regressions
+        run: |
+          sudo unshare --net -- env "PATH=$PATH" \
+            GITHUB_ACTIONS=true "GITHUB_STEP_SUMMARY=$GITHUB_STEP_SUMMARY" \
+            python3 scripts/run-regressions.py php --require-offline
+
+  client:
+    name: JavaScript, PWA and update assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the code under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js and cache test dependency downloads
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+
+      - name: Set up PHP for rendered JavaScript checks
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.5'
+          extensions: json, tokenizer
+          coverage: none
+          tools: none
+
+      - name: Install test-only DOM dependency
+        run: npm ci --prefix tests --ignore-scripts --no-audit --no-fund
+
+      - name: Offline JavaScript and PWA checks
+        run: |
+          sudo unshare --net -- env "PATH=$PATH" \
+            GITHUB_ACTIONS=true "GITHUB_STEP_SUMMARY=$GITHUB_STEP_SUMMARY" \
+            python3 scripts/run-regressions.py client --require-offline
+
+      - name: Offline icon assets and changelog-generator checks
+        if: ${{ !cancelled() }}
+        run: |
+          sudo unshare --net -- env "PATH=$PATH" \
+            GITHUB_ACTIONS=true "GITHUB_STEP_SUMMARY=$GITHUB_STEP_SUMMARY" \
+            python3 scripts/run-regressions.py python --require-offline
+
+  gate:
+    # Require this stable check in main's branch protection/ruleset.
+    name: Regression gate
+    if: ${{ always() }}
+    needs: [php, client]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every regression job to pass
+        env:
+          PHP_RESULT: ${{ needs.php.result }}
+          CLIENT_RESULT: ${{ needs.client.result }}
+        run: |
+          printf 'PHP matrix: %s\nJavaScript/PWA/assets: %s\n' "$PHP_RESULT" "$CLIENT_RESULT"
+          if [ "$PHP_RESULT" != success ] || [ "$CLIENT_RESULT" != success ]; then
+            echo '::error::Regression gate failed: every job must succeed, including every PHP version.'
+            exit 1
+          fi
