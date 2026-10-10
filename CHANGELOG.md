@@ -7,6 +7,9 @@ Release notes are shown when checking for an update and after an update is insta
 - Mobile search fits in the top header row beside the avatar and action buttons. The field can shrink with a clipped placeholder, and editing frees the search icon's space for text.
 - Portable email (.PSE) is the first option in the message Export menu, ahead of Original email (.eml).
 
+### Merged changes
+- 2026-10-10: [#8](https://github.com/ziobit/PSE-Email-Client/pull/8) — Release 2\.18\.8: fit mobile search at the top and put PSE export first. Commit [dd03726](https://github.com/ziobit/PSE-Email-Client/commit/dd037263a6fdb00fe525ed38ef7bc18097f6d6a8). <!-- pse-pr:ziobit/PSE-Email-Client#8 -->
+
 ## 2.18.7 (2026-10-10)
 
 - Settings → Appearance now includes a full screen preference and enter/exit controls, remembered immediately in the current browser.
