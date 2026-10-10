@@ -4,6 +4,13 @@ Single-file PHP email client for IMAP/SMTP and Google OAuth2/Gmail API accounts.
 
 Deploy `index.php` on your PHP web server and open it to configure the application. The file serves its own PWA manifest, service worker, and embedded icons. PHP 7.4+ and OpenSSL/JSON are required; regular mail accounts also require PHP IMAP. Gmail needs cURL or HTTPS URL access. Downloading attachment ZIPs requires PHP ZIP.
 
+## Changes in 2.18.5
+
+- **Export → Portable email (.PSE)** and the composer's **Download .PSE** now use the same Save As mechanism as attachments. On supported browsers in a secure context, choose the folder and file name before the export is prepared. Cancel stops without downloading attachments or building the draft. The suggested name follows the email subject or the current compose subject; the `.pse` extension is retained.
+- When the browser cannot show the native picker, PSE asks for a file name and uses normal downloads; the browser's download settings control the destination folder.
+- Every `.pse` export is one self-contained file with the email and all attachment contents embedded inside. Copying or sending that file keeps the attachments together; no companion folder or separate attachment files are needed.
+- Automated regression checks now run on pull requests and updates to `main`; see **Verification** below.
+
 ## Changes in 2.18.2
 
 - Installed PWA file launches focus an existing app window where the browser supports it. A new file-launch window opens the local email directly, with mailbox synchronization paused until **Open mailbox** or **Refresh** is chosen. See [Windows setup](README-Windows-PSE.md) for refreshing an older installed manifest.

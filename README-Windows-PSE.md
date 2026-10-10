@@ -14,6 +14,8 @@ The browser must install PSE as an app for operating-system file handling. A des
 ## Set the default for all `.pse` files
 
 1. Create a test file using PSE: open an email, choose **Export → Portable email (.PSE)**, and save it to your computer. For a draft, choose **Download .PSE** in the composer.
+
+   Both actions open the native Save As dialog when supported on a secure PSE page, allowing you to choose the folder and file name. Cancelling stops before attachments or draft content are prepared. If the browser cannot show the dialog, PSE offers a file-name prompt and the browser's download settings select the folder.
 2. In File Explorer, right-click the file and choose **Open with → Choose another app**. Select **PSE Email** (or your configured application title), then choose **Always** / **Always use this app**.
 3. Alternatively open **Windows Settings → Apps → Default apps**, search for `.pse`, and select the installed PSE app.
 4. Approve the browser's request to let PSE open the file. Remember the permission if the browser offers that option.
@@ -90,6 +92,7 @@ Keep the ICO at that path. If Explorer retains an old cached icon, sign out of W
 - **Open .PSE file** in the left sidebar also works in a normal browser tab and supplies a fallback when OS file handling is unavailable.
 - Old `PSE/1` draft files remain compatible. Local files have their server draft IDs cleared, so editing a copy cannot overwrite an unrelated saved draft.
 - Received-message exports preserve From, To, Cc, Bcc, Reply-To, subject, date, body and embedded attachment bytes. Forward retains the attachment bytes; Reply uses Reply-To when present.
+- A saved message or draft is a single self-contained `.pse` file. All attachments are stored inside it; copying or sending the file needs no separate attachment files or folder.
 - Export fails if an attachment cannot be downloaded. Server cache links are never substituted for embedded attachments. External images are blocked; available inline email images are included among the attachments.
 - Opening a local file reads it in the browser. The original file is unchanged. Editing, saving a draft or sending can upload content to the configured PSE server/account through the existing workflows.
 - If the application password is required, the launch handle is retained locally for up to 15 minutes through the sign-in reload when browser storage supports it. Otherwise the sign-in page tells you to double-click the file again after signing in.

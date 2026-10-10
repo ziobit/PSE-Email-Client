@@ -111,5 +111,18 @@ window.eval(block('      function quotedMessageHtml(message) {', '      function
   assert.equal(window.document.querySelector('#composeSubject').value, 'Fwd: Portable message');
   assert.equal(window.state.composeFiles.length, 1);
   assert.equal(await window.state.composeFiles[0].text(), 'hello', 'Forward keeps the exact embedded attachment');
+  const binary = Buffer.from(Array.from({length: 256}, (_, index) => index));
+  const portable = JSON.stringify(record({...valid.message, attachments: [
+    valid.message.attachments[0],
+    {name: 'binary.bin', type: 'application/octet-stream', data: binary.toString('base64')}
+  ]}));
+  const reopened = api.localPseMessage(api.normalizeLocalPseRecord(JSON.parse(portable)));
+  assert.equal(reopened.attachments.length, 2, 'One PSE file reopens all embedded attachments.');
+  assert.equal(await blobs.get(reopened.attachments[0].url).text(), 'hello');
+  assert.deepEqual(Buffer.from(await blobs.get(reopened.attachments[1].url).arrayBuffer()), binary);
+  await window.replyToMessage('forward', reopened);
+  assert.equal(window.state.composeFiles.length, 2);
+  assert.equal(await window.state.composeFiles[0].text(), 'hello');
+  assert.deepEqual(Buffer.from(await window.state.composeFiles[1].arrayBuffer()), binary, 'Reopening/forwarding uses exact embedded bytes without network requests.');
   console.log('PSE local-file tests passed: reply/forward, portable attachments, reply-to, legacy drafts, safe HTML, invalid input and limits.');
 })().catch(error => { console.error(error); process.exitCode = 1; });
