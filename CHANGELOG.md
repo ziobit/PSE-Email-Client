@@ -7,6 +7,9 @@ Release notes are shown when checking for an update and after an update is insta
 - On mobile, the top-left application icon opens a native account selector when more than one email account is configured. It starts on the current account and uses the existing account switch-and-reload behavior.
 - The icon stays decorative with a single account, and the desktop account badge menu stays available. The mobile picker prevents repeated switches while a request is pending and restores the current selection after a failure.
 
+### Merged changes
+- 2026-10-10: [#10](https://github.com/ziobit/PSE-Email-Client/pull/10) — Release 2\.18\.10: choose accounts from the mobile app icon. Commit [68f5ae2](https://github.com/ziobit/PSE-Email-Client/commit/68f5ae26a592f11725ab68f8218fc70669ff6b3a). <!-- pse-pr:ziobit/PSE-Email-Client#10 -->
+
 ## 2.18.9 (2026-10-10)
 
 - Toggle buttons visibly return to unselected when tapped again, including on touch browsers that retain hover styling. Full screen, multiple selection, filters, calendar, layout and compose maximize buttons keep their visual and accessible state in sync.
