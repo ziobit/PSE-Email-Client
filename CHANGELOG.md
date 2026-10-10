@@ -8,6 +8,9 @@ Release notes are shown when checking for an update and after an update is insta
 - Supported mobile browsers ask once whether to use full screen. Both answers are remembered; reopening with full screen preferred shows a header button to resume with the tap required by the browser.
 - The first mobile prompt waits for local-file opening, update notices and other dialogs. Browser exits and failed requests keep the saved preference available for a later retry.
 
+### Merged changes
+- 2026-10-10: [#7](https://github.com/ziobit/PSE-Email-Client/pull/7) — Release 2\.18\.7: remembered full screen and first mobile prompt. Commit [1210237](https://github.com/ziobit/PSE-Email-Client/commit/121023793d6bda01d40e95329272ce1d7f4b0353). <!-- pse-pr:ziobit/PSE-Email-Client#7 -->
+
 ## 2.18.6 (2026-10-10)
 
 - On phones, search now occupies its own full-width header row. The icon, text field, saved-search and clear buttons stay together without wrapping.
