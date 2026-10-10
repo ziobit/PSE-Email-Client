@@ -4,6 +4,11 @@ Single-file PHP email client for IMAP/SMTP and Google OAuth2/Gmail API accounts.
 
 Deploy `index.php` on your PHP web server and open it to configure the application. The file serves its own PWA manifest, service worker, and embedded icons. PHP 7.4+ and OpenSSL/JSON are required; regular mail accounts also require PHP IMAP. Gmail needs cURL or HTTPS URL access. Downloading attachment ZIPs requires PHP ZIP.
 
+## Changes in 2.18.8
+
+- On phones, search now shares the top header row with the avatar and action buttons. The field can shrink without wrapping, even if the placeholder is clipped. While editing, the search icon gives way to more text space; saved-search and clear controls remain available.
+- **Portable email (.PSE)** is now the first option in the message **Export** menu, followed by **Original email (.eml)**.
+
 ## Changes in 2.18.7
 
 - **Settings → Appearance → Full screen** offers a **Prefer full screen on this device** switch and an enter/exit button. The preference is saved immediately in the current browser, independently of email accounts and the Settings Save button.
