@@ -4,6 +4,11 @@ Single-file PHP email client for IMAP/SMTP and Google OAuth2/Gmail API accounts.
 
 Deploy `index.php` on your PHP web server and open it to configure the application. The file serves its own PWA manifest, service worker, and embedded icons. PHP 7.4+ and OpenSSL/JSON are required; regular mail accounts also require PHP IMAP. Gmail needs cURL or HTTPS URL access. Downloading attachment ZIPs requires PHP ZIP.
 
+## Changes in 2.18.9
+
+- Toggle buttons return to their unselected appearance when tapped again, even when a mobile browser retains its hover effect. Full screen, multiple selection, mailbox filters, calendar, layout and compose maximize controls reflect their actual state.
+- The footer unread button toggles the same filter as the toolbar. Selecting all messages on the current page or across all pages now toggles off on a second tap. Filter changes clear the selection controls immediately; delayed ID responses cannot restore a selection after it has been cleared or the view changed.
+
 ## Changes in 2.18.8
 
 - On phones, search now shares the top header row with the avatar and action buttons. The field can shrink without wrapping, even if the placeholder is clipped. While editing, the search icon gives way to more text space; saved-search and clear controls remain available.

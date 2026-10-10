@@ -109,9 +109,14 @@ function environment(options = {}) {
   assert.equal(first.visible(), false);
   assert.equal(first.calls.find(c => c.request).config.navigationUI, 'hide');
   assert.equal(first.document.querySelector('#toggleFullscreen').getAttribute('aria-pressed'), 'true');
+  assert.equal(first.document.querySelector('#toggleFullscreen').classList.contains('active'), true);
+  assert.equal(first.document.querySelector('#settingsFullscreenToggle').getAttribute('aria-pressed'), 'true');
   first.exitFromBrowser();
   assert.equal(first.storage.get(key), '1', 'Browser exit keeps the saved preference.');
   assert.equal(first.document.querySelector('#toggleFullscreen').getAttribute('aria-pressed'), 'false');
+  assert.equal(first.document.querySelector('#toggleFullscreen').classList.contains('active'), false);
+  assert.equal(first.document.querySelector('#settingsFullscreenToggle').classList.contains('active'), false);
+  assert.equal(first.document.querySelector('#settingsFullscreenToggle').getAttribute('aria-pressed'), 'false');
   const reopened = environment({storage: first.storage});
   assert.equal(reopened.timers.length, 0, 'An accepted first-visit choice is not asked again.');
   assert.equal(reopened.calls.length, 0, 'Remembering full screen must not attempt entry without a fresh tap.');
@@ -120,6 +125,8 @@ function environment(options = {}) {
   assert.equal(reopened.active(), true);
   await reopened.act('toggleFullscreen');
   assert.equal(reopened.active(), false);
+  assert.equal(reopened.document.querySelector('#toggleFullscreen').classList.contains('active'), false);
+  assert.equal(reopened.document.querySelector('#toggleFullscreen').getAttribute('aria-pressed'), 'false');
   assert.equal(reopened.storage.get(key), '1', 'Header exit is temporary; Settings controls the preference.');
   first.close(); reopened.close(); scenarios++;
 

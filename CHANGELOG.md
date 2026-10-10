@@ -2,6 +2,11 @@
 
 Release notes are shown when checking for an update and after an update is installed. Dates in automatically recorded merge entries use UTC. The repository keeps the complete history; the single PHP file bundles the latest notes for offline use.
 
+## 2.18.9 (2026-10-10)
+
+- Toggle buttons visibly return to unselected when tapped again, including on touch browsers that retain hover styling. Full screen, multiple selection, filters, calendar, layout and compose maximize buttons keep their visual and accessible state in sync.
+- The footer unread filter and current-page/all-pages selection controls now toggle off on a second tap. Filter changes reset selection controls immediately, and outdated ID responses cannot reactivate cleared selections or select messages in another view.
+
 ## 2.18.8 (2026-10-10)
 
 - Mobile search fits in the top header row beside the avatar and action buttons. The field can shrink with a clipped placeholder, and editing frees the search icon's space for text.
