@@ -4,6 +4,13 @@ Single-file PHP email client for IMAP/SMTP and Google OAuth2/Gmail API accounts.
 
 Deploy `index.php` on your PHP web server and open it to configure the application. The file serves its own PWA manifest, service worker, and embedded icons. PHP 7.4+ and OpenSSL/JSON are required; regular mail accounts also require PHP IMAP. Gmail needs cURL or HTTPS URL access. Downloading attachment ZIPs requires PHP ZIP.
 
+## Changes in 2.18.7
+
+- **Settings → Appearance → Full screen** offers a **Prefer full screen on this device** switch and an enter/exit button. The preference is saved immediately in the current browser, independently of email accounts and the Settings Save button.
+- The first authenticated mobile visit in a browser that supports full screen asks **Use full screen on this device?** Both accepting and declining are remembered. The prompt waits for local-file opening, update notices and other dialogs.
+- Browsers require a user action to enter full screen. When the preference is enabled, reopening PSE shows a header expand button; tap it to resume. The same button exits full screen. Exiting with browser controls keeps the preference; turn the switch off to disable it. Clearing site storage resets the first-visit choice, and blocked storage remembers it for the current visit only.
+- Installed-app mode and full screen are separate. Unsupported browsers show guidance in Settings; installed apps already launched in full screen do not receive the first-visit prompt.
+
 ## Changes in 2.18.6
 
 - Search has a full-width row below the header buttons on phones, in every UI spacing mode. Its icon and saved-search/clear buttons stay on the same line. The message area adjusts to the taller header so mobile footer navigation remains visible.
