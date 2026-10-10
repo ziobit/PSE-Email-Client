@@ -2,6 +2,12 @@
 
 Release notes are shown when checking for an update and after an update is installed. Dates in automatically recorded merge entries use UTC. The repository keeps the complete history; the single PHP file bundles the latest notes for offline use.
 
+## 2.18.7 (2026-10-10)
+
+- Settings → Appearance now includes a full screen preference and enter/exit controls, remembered immediately in the current browser.
+- Supported mobile browsers ask once whether to use full screen. Both answers are remembered; reopening with full screen preferred shows a header button to resume with the tap required by the browser.
+- The first mobile prompt waits for local-file opening, update notices and other dialogs. Browser exits and failed requests keep the saved preference available for a later retry.
+
 ## 2.18.6 (2026-10-10)
 
 - On phones, search now occupies its own full-width header row. The icon, text field, saved-search and clear buttons stay together without wrapping.
