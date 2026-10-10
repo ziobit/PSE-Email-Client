@@ -2,6 +2,11 @@
 
 Release notes are shown when checking for an update and after an update is installed. Dates in automatically recorded merge entries use UTC. The repository keeps the complete history; the single PHP file bundles the latest notes for offline use.
 
+## 2.18.6 (2026-10-10)
+
+- On phones, search now occupies its own full-width header row. The icon, text field, saved-search and clear buttons stay together without wrapping.
+- Ultra Compact mode no longer reserves desktop logo space on mobile. The message area adjusts to the header height, keeping the footer navigation on screen.
+
 ## 2.18.5 (2026-10-10)
 
 - Portable `.pse` email exports and downloaded compose drafts now let you choose the folder and file name, just like saving attachments, when the browser supports the native Save As dialog.
