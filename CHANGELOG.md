@@ -2,6 +2,11 @@
 
 Release notes are shown when checking for an update and after an update is installed. Dates in automatically recorded merge entries use UTC. The repository keeps the complete history; the single PHP file bundles the latest notes for offline use.
 
+## 2.18.8 (2026-10-10)
+
+- Mobile search fits in the top header row beside the avatar and action buttons. The field can shrink with a clipped placeholder, and editing frees the search icon's space for text.
+- Portable email (.PSE) is the first option in the message Export menu, ahead of Original email (.eml).
+
 ## 2.18.7 (2026-10-10)
 
 - Settings → Appearance now includes a full screen preference and enter/exit controls, remembered immediately in the current browser.
