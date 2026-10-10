@@ -4,6 +4,11 @@ Single-file PHP email client for IMAP/SMTP and Google OAuth2/Gmail API accounts.
 
 Deploy `index.php` on your PHP web server and open it to configure the application. The file serves its own PWA manifest, service worker, and embedded icons. PHP 7.4+ and OpenSSL/JSON are required; regular mail accounts also require PHP IMAP. Gmail needs cURL or HTTPS URL access. Downloading attachment ZIPs requires PHP ZIP.
 
+## Changes in 2.18.10
+
+- On mobile screens (up to 900px), tap the application icon at the top left to open the native account combo when two or more email accounts are configured. The current account is selected; choosing another switches accounts and reloads PSE. With one account, the icon stays decorative. Desktop keeps the existing account badge menu.
+- The picker is disabled while switching. A failed switch shows the existing error notice and restores the current selection so you can try again.
+
 ## Changes in 2.18.9
 
 - Toggle buttons return to their unselected appearance when tapped again, even when a mobile browser retains its hover effect. Full screen, multiple selection, mailbox filters, calendar, layout and compose maximize controls reflect their actual state.
@@ -67,7 +72,7 @@ Date-based cleanup skips IMAP messages with unreadable dates. Delete all include
 
 The **PSE regression tests** workflow in [.github/workflows/regression.yml](.github/workflows/regression.yml) runs on every pull request, push to `main`, merge-queue check and manual dispatch. It runs PHP syntax checks and every top-level PHP regression suite on **PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 and 8.5**, preserving the advertised PHP 7.4+ compatibility. The separate client job uses **Node.js 24** and PHP 8.5, plus the runner's Python 3, for JavaScript, PWA/icon and changelog-generator checks.
 
-Coverage includes Gmail `historyId` synchronization and mutations, message/list caches, queued deletions, Sent recipients, cancellable folder cleanup, update/changelog behavior, portable local files, PWA manifests and file launches. JavaScript checks also compile the real setup, login and authenticated page scripts and PWA service worker in temporary application copies. These checks do not fetch CDN assets or execute the rendered page scripts.
+Coverage includes Gmail `historyId` synchronization and mutations, message/list caches, queued deletions, Sent recipients, cancellable folder cleanup, update/changelog behavior, portable local files, mobile account selection, PWA manifests and file launches. JavaScript checks also compile the real setup, login and authenticated page scripts and PWA service worker in temporary application copies. These checks do not fetch CDN assets or execute the rendered page scripts.
 
 Dependencies are downloaded before tests run. Each test command then executes inside a fresh Linux network namespace with only loopback, and the runner verifies that isolation before starting. Tests cannot reach Google, IMAP, SMTP or any other external service. They use simulated mailboxes, disposable storage and no credentials or Actions secrets. PHP runs with `-n` (no deployment `php.ini`), only JSON/tokenizer added when needed, no native IMAP/cURL, URL wrappers disabled and mail/socket connection functions disabled. Each fixture process receives a minimal environment and its own temporary directory.
 

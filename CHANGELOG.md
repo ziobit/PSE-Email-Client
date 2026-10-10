@@ -2,6 +2,11 @@
 
 Release notes are shown when checking for an update and after an update is installed. Dates in automatically recorded merge entries use UTC. The repository keeps the complete history; the single PHP file bundles the latest notes for offline use.
 
+## 2.18.10 (2026-10-10)
+
+- On mobile, the top-left application icon opens a native account selector when more than one email account is configured. It starts on the current account and uses the existing account switch-and-reload behavior.
+- The icon stays decorative with a single account, and the desktop account badge menu stays available. The mobile picker prevents repeated switches while a request is pending and restores the current selection after a failure.
+
 ## 2.18.9 (2026-10-10)
 
 - Toggle buttons visibly return to unselected when tapped again, including on touch browsers that retain hover styling. Full screen, multiple selection, filters, calendar, layout and compose maximize buttons keep their visual and accessible state in sync.
