@@ -1,6 +1,6 @@
 <?php
 /*
- * PSE Email (PSE), release v2.18.8
+ * PSE Email (PSE), release v2.18.9
  * Single-file PHP email client with IMAP/SMTP and Google OAuth2/Gmail API accounts.
  * Includes EML/TXT/Word/PDF/image exports, read-time contact suggestions and lazy attachments.
  *
@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.18.8';
+const PSE_VERSION = '2.18.9';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -10490,7 +10490,7 @@ function pseApplyClientAppearanceSettings(array $settings, $raw): array
 /* PSE_EMBEDDED_CHANGELOG_START */
 function pseBundledChangelogText(): string
 {
-  return base64_decode('IyBQU0UgRW1haWwgQ2xpZW50IGNoYW5nZWxvZwoKUmVsZWFzZSBub3RlcyBhcmUgc2hvd24gd2hlbiBjaGVja2luZyBmb3IgYW4gdXBkYXRlIGFuZCBhZnRlciBhbiB1cGRhdGUgaXMgaW5zdGFsbGVkLiBEYXRlcyBpbiBhdXRvbWF0aWNhbGx5IHJlY29yZGVkIG1lcmdlIGVudHJpZXMgdXNlIFVUQy4gVGhlIHJlcG9zaXRvcnkga2VlcHMgdGhlIGNvbXBsZXRlIGhpc3Rvcnk7IHRoZSBzaW5nbGUgUEhQIGZpbGUgYnVuZGxlcyB0aGUgbGF0ZXN0IG5vdGVzIGZvciBvZmZsaW5lIHVzZS4KCiMjIDIuMTguOCAoMjAyNi0xMC0xMCkKCi0gTW9iaWxlIHNlYXJjaCBmaXRzIGluIHRoZSB0b3AgaGVhZGVyIHJvdyBiZXNpZGUgdGhlIGF2YXRhciBhbmQgYWN0aW9uIGJ1dHRvbnMuIFRoZSBmaWVsZCBjYW4gc2hyaW5rIHdpdGggYSBjbGlwcGVkIHBsYWNlaG9sZGVyLCBhbmQgZWRpdGluZyBmcmVlcyB0aGUgc2VhcmNoIGljb24ncyBzcGFjZSBmb3IgdGV4dC4KLSBQb3J0YWJsZSBlbWFpbCAoLlBTRSkgaXMgdGhlIGZpcnN0IG9wdGlvbiBpbiB0aGUgbWVzc2FnZSBFeHBvcnQgbWVudSwgYWhlYWQgb2YgT3JpZ2luYWwgZW1haWwgKC5lbWwpLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0xMDogWyM4XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC84KSDigJQgUmVsZWFzZSAyXC4xOFwuODogZml0IG1vYmlsZSBzZWFyY2ggYXQgdGhlIHRvcCBhbmQgcHV0IFBTRSBleHBvcnQgZmlyc3QuIENvbW1pdCBbZGQwMzcyNl0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC9kZDAzNzI2M2E2ZmRiMDBmZTUyNWVkMzhlZjdiYzE4MDk3ZjZkNmE4KS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjOCAtLT4KCiMjIDIuMTguNyAoMjAyNi0xMC0xMCkKCi0gU2V0dGluZ3Mg4oaSIEFwcGVhcmFuY2Ugbm93IGluY2x1ZGVzIGEgZnVsbCBzY3JlZW4gcHJlZmVyZW5jZSBhbmQgZW50ZXIvZXhpdCBjb250cm9scywgcmVtZW1iZXJlZCBpbW1lZGlhdGVseSBpbiB0aGUgY3VycmVudCBicm93c2VyLgotIFN1cHBvcnRlZCBtb2JpbGUgYnJvd3NlcnMgYXNrIG9uY2Ugd2hldGhlciB0byB1c2UgZnVsbCBzY3JlZW4uIEJvdGggYW5zd2VycyBhcmUgcmVtZW1iZXJlZDsgcmVvcGVuaW5nIHdpdGggZnVsbCBzY3JlZW4gcHJlZmVycmVkIHNob3dzIGEgaGVhZGVyIGJ1dHRvbiB0byByZXN1bWUgd2l0aCB0aGUgdGFwIHJlcXVpcmVkIGJ5IHRoZSBicm93c2VyLgotIFRoZSBmaXJzdCBtb2JpbGUgcHJvbXB0IHdhaXRzIGZvciBsb2NhbC1maWxlIG9wZW5pbmcsIHVwZGF0ZSBub3RpY2VzIGFuZCBvdGhlciBkaWFsb2dzLiBCcm93c2VyIGV4aXRzIGFuZCBmYWlsZWQgcmVxdWVzdHMga2VlcCB0aGUgc2F2ZWQgcHJlZmVyZW5jZSBhdmFpbGFibGUgZm9yIGEgbGF0ZXIgcmV0cnkuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTEwOiBbIzddKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzcpIOKAlCBSZWxlYXNlIDJcLjE4XC43OiByZW1lbWJlcmVkIGZ1bGwgc2NyZWVuIGFuZCBmaXJzdCBtb2JpbGUgcHJvbXB0LiBDb21taXQgWzEyMTAyMzddKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvMTIxMDIzNzkzZDZiZGEwMWQ0MGU5NTMyOTI3MmNlMWQ3ZjRiMDM1MykuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzcgLS0+CgojIyAyLjE4LjYgKDIwMjYtMTAtMTApCgotIE9uIHBob25lcywgc2VhcmNoIG5vdyBvY2N1cGllcyBpdHMgb3duIGZ1bGwtd2lkdGggaGVhZGVyIHJvdy4gVGhlIGljb24sIHRleHQgZmllbGQsIHNhdmVkLXNlYXJjaCBhbmQgY2xlYXIgYnV0dG9ucyBzdGF5IHRvZ2V0aGVyIHdpdGhvdXQgd3JhcHBpbmcuCi0gVWx0cmEgQ29tcGFjdCBtb2RlIG5vIGxvbmdlciByZXNlcnZlcyBkZXNrdG9wIGxvZ28gc3BhY2Ugb24gbW9iaWxlLiBUaGUgbWVzc2FnZSBhcmVhIGFkanVzdHMgdG8gdGhlIGhlYWRlciBoZWlnaHQsIGtlZXBpbmcgdGhlIGZvb3RlciBuYXZpZ2F0aW9uIG9uIHNjcmVlbi4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMTA6IFsjNl0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvNikg4oCUIFJlbGVhc2UgMlwuMThcLjY6IGZpeCBtb2JpbGUgc2VhcmNoIGxheW91dC4gQ29tbWl0IFs1YWE1Yzg2XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0LzVhYTVjODY1N2RmNGIzY2M5ZmQ2ODM3N2JhOTZlYTYyMzBmMmY5NjcpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCM2IC0tPgoKIyMgMi4xOC41ICgyMDI2LTEwLTEwKQoKLSBQb3J0YWJsZSBgLnBzZWAgZW1haWwgZXhwb3J0cyBhbmQgZG93bmxvYWRlZCBjb21wb3NlIGRyYWZ0cyBub3cgbGV0IHlvdSBjaG9vc2UgdGhlIGZvbGRlciBhbmQgZmlsZSBuYW1lLCBqdXN0IGxpa2Ugc2F2aW5nIGF0dGFjaG1lbnRzLCB3aGVuIHRoZSBicm93c2VyIHN1cHBvcnRzIHRoZSBuYXRpdmUgU2F2ZSBBcyBkaWFsb2cuCi0gQ2FuY2VsbGluZyBTYXZlIEFzIHN0b3BzIGJlZm9yZSBhdHRhY2htZW50cyBhcmUgcHJlcGFyZWQuIEJyb3dzZXJzIHdpdGhvdXQgdGhlIG5hdGl2ZSBkaWFsb2cgb2ZmZXIgYSBmaWxlLW5hbWUgcHJvbXB0IGFuZCBrZWVwIHVzaW5nIG5vcm1hbCBkb3dubG9hZHMuCi0gVXBkYXRlcyBub3cgcnVuIGF1dG9tYXRlZCBjaGVja3MgZm9yIG1haWxib3ggc3luY2hyb25pemF0aW9uLCBjYWNoaW5nLCBkZWxldGlvbnMsIGNsZWFudXAsIGZpbGUgb3BlbmluZyBhbmQgZXhwb3J0cyBiZWZvcmUgbWVyZ2luZyBjaGFuZ2VzLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0xMDogWyM1XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC81KSDigJQgUmVsZWFzZSAyXC4xOFwuNTogU2F2ZSBBcyBmb3IgUFNFIGZpbGVzIGFuZCByZWdyZXNzaW9uIENJLiBDb21taXQgWzhiN2QxOTddKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvOGI3ZDE5NzYzYTAxMmM4YTVhY2Q3Zjc3OWU5Yzc1ZTFhYjU5ZmNlNSkuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzUgLS0+CgojIyAyLjE4LjQgKDIwMjYtMTAtMDcpCgotIFF1ZXVpbmcgYSBkZWxldGlvbiBpbW1lZGlhdGVseSByZW1vdmVzIGl0cyByb3dzIGZyb20gdGhlIHZpc2libGUgZm9sZGVyLCBpbmNsdWRpbmcgYWZ0ZXIgR21haWwgaGlzdG9yeSBoYXMgaW52YWxpZGF0ZWQgdGhlIHBhZ2UgY2FjaGUuIFJlYWQvdW5yZWFkLCByZXN0b3JlIGFuZCBwZXJtYW5lbnQtZGVsZXRlIGFjdGlvbnMgYWxzbyB1cGRhdGUgdmlzaWJsZSByb3dzIHdpdGhvdXQgcmVseWluZyBvbiBhIGNhY2hlZCBwYWdlLgotIFJlZnJlc2hlZCBsaXN0cyBoaWRlIHBlbmRpbmcgcXVldWVkIGRlbGV0aW9ucyB1bnRpbCB0aGV5IGFyZSBwcm9jZXNzZWQgb3IgdW5kb25lLiBPcHRpbWlzdGljIGNhY2hlIHVwZGF0ZXMgcHJlc2VydmUgR21haWwgcmV2aXNpb24gYW5kIHZpZXctZmlsdGVyIG1ldGFkYXRhLgotIEJhY2tncm91bmQgbGlzdCByZXNwb25zZXMgc3RhcnRlZCBiZWZvcmUgYSBtYWlsYm94IGFjdGlvbiBjYW5ub3QgcmVwbGFjZSB0aGUgdXBkYXRlZCBsaXN0LiBNdWx0aS1iYXRjaCBkZWxldGlvbiBrZWVwcyB1c2luZyBpdHMgb3JpZ2luYWwgZm9sZGVyIHdoZW4gdGhlIHVzZXIgbmF2aWdhdGVzIGVsc2V3aGVyZS4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMDc6IFsjNF0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvNCkg4oCUIFJlbGVhc2UgMlwuMThcLjQ6IHJlbW92ZSBxdWV1ZWQgZGVsZXRpb25zIGZyb20gbWVzc2FnZSBsaXN0cyBpbW1lZGlhdGVseS4gQ29tbWl0IFszMjdhYjA1XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0LzMyN2FiMDU5YWNmNmY0ZjNkNzRmODYyNzhhNGNhZmQxZDJjNjY4ZWMpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCM0IC0tPgoKIyMgMi4xOC4zICgyMDI2LTEwLTA2KQoKLSBHbWFpbCBhY2NvdW50cyBub3cgc2F2ZSBhIHBlci1hY2NvdW50IGBoaXN0b3J5SWRgIGNoZWNrcG9pbnQgYW5kIHJlcXVlc3QgbWFpbGJveCBjaGFuZ2VzIHNpbmNlIHRoZSBsYXN0IHN1Y2Nlc3NmdWwgc3luYy4gVW5jaGFuZ2VkIG1lc3NhZ2UgZGV0YWlscywgYm9kaWVzIGFuZCBjYWxlbmRhciBlbnRyaWVzIGFyZSByZXVzZWQgZnJvbSBjYWNoZS4KLSBOZXcgbWFpbCwgcmVhZC91bnJlYWQgY2hhbmdlcywgbW92ZXMsIGRlbGV0aW9ucyBhbmQgZHJhZnQgY2hhbmdlcyB1cGRhdGUgdGhlIHJlbGV2YW50IGZvbGRlcnMuIEJhY2tncm91bmQgcmVmcmVzaCBwcmVzZXJ2ZXMgdGhlIHZpc2libGUgR21haWwgcGFnZSBhbmQgZmlsdGVycywgaW5jbHVkaW5nIGNoYW5nZXMgdGhhdCBsZWF2ZSBtZXNzYWdlIGNvdW50cyB1bmNoYW5nZWQuCi0gRXhwaXJlZCBHbWFpbCBoaXN0b3J5IGNoZWNrcG9pbnRzIHJlYnVpbGQgdGhlIHJlcXVlc3RlZCBjYWNoZWQgdmlld3Mgc2FmZWx5LiBJbnRlcnJ1cHRlZCwgcmF0ZS1saW1pdGVkIG9yIGZhaWxlZCByZXF1ZXN0cyBwcmVzZXJ2ZSB0aGUgY2hlY2twb2ludCBhbmQgYXZhaWxhYmxlIGNhY2hlZCBtZXNzYWdlcyBmb3IgcmV0cnkuCi0gU3luY2hyb25pemF0aW9uIGNvb3JkaW5hdGVzIGNvbmN1cnJlbnQgcmVxdWVzdHMsIGtlZXBzIGFjY291bnRzIGlzb2xhdGVkLCBhbmQgcmVqZWN0cyBzdGFsZSBjYWNoZSB3cml0ZXMuIExvY2FsIG1haWxib3ggYWN0aW9ucyBpbnZhbGlkYXRlIG9yIHVwZGF0ZSB0aGUgY29ycmVzcG9uZGluZyBjYWNoZWQgbWVzc2FnZXMuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTA2OiBbIzNdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzMpIOKAlCBSZWxlYXNlIDJcLjE4XC4zOiBpbmNyZW1lbnRhbCBHbWFpbCBzeW5jIHVzaW5nIGhpc3RvcnlJZC4gQ29tbWl0IFs2N2YzODE0XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0LzY3ZjM4MTRmMDU5YjIxYTcxZjBiYjI4ZDYwNGQzZWY3OTc2Mzc3NWIpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMzIC0tPgoKIyMgMi4xOC4yICgyMDI2LTEwLTA2KQoKLSBPcGVuaW5nIGEgYC5wc2VgIGZpbGUgcmVxdWVzdHMgdGhlIGV4aXN0aW5nIFBXQSB3aW5kb3cgd2l0aG91dCByZWxvYWRpbmcgaXQgb24gYnJvd3NlcnMgc3VwcG9ydGluZyB0aGUgTGF1bmNoIEhhbmRsZXIgQVBJLiBNdWx0aXBsZSBmaWxlcyBvcGVuZWQgdG9nZXRoZXIgc2hhcmUgb25lIHdpbmRvdy4KLSBBIG5ldyBmaWxlLWxhdW5jaCB3aW5kb3cgZ29lcyBkaXJlY3RseSB0byBpdHMgbG9jYWwgZmlsZXMuIFN0YXJ0dXAgZm9sZGVyL21lc3NhZ2Ugc3luY2luZywgcXVldWVkIG1haWxib3ggd29yaywgcG9sbGluZywgYW5kIG1lc3NhZ2UgcHJlZmV0Y2ggc3RheSBwYXVzZWQgdW50aWwgT3BlbiBtYWlsYm94IG9yIFJlZnJlc2ggaXMgY2hvc2VuLiBQYXNzd29yZCBzaWduLWluIHByZXNlcnZlcyB0aGlzIGJlaGF2aW9yLgotIEZvbGRlciBjbGVhbnVwIG5vdyBzaG93cyBhIHByb2dyZXNzIGJhciwgc3Bpbm5lciwgcHJvY2Vzc2VkIGNvdW50cywgZXN0aW1hdGVkIGZpbmlzaCB0aW1lLCBhbmQgQ2FuY2VsLiBFc3RpbWF0ZXMgYWRqdXN0IGFmdGVyIGNvbXBsZXRlZCBiYXRjaGVzLiBDYW5jZWxsYXRpb24gc3RvcHMgZnV0dXJlIGJhdGNoZXMgYWZ0ZXIgdGhlIGN1cnJlbnQgcmVxdWVzdCBmaW5pc2hlcyBhbmQgcHJlc2VydmVzIHRoZSByZW1haW5pbmcgc2VsZWN0aW9uIGZvciBhIGNvbmZpcm1lZCByZXN1bWUuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTA2OiBbIzJdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzIpIOKAlCBSZWxlYXNlIDJcLjE4XC4yOiBmYXN0IFBTRSBmaWxlIGxhdW5jaGVzIGFuZCBjYW5jZWxsYWJsZSBjbGVhbnVwIHByb2dyZXNzLiBDb21taXQgWzc4OGJkMjJdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvNzg4YmQyMjRmZmM4NzEwMThjOTA0MGM0ZGIwYmQ3MzhkZDhjNTVjNSkuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzIgLS0+CgojIyAyLjE4LjEgKDIwMjYtMTAtMDYpCgotIEFkZGVkIHRoaXMgY2hhbmdlbG9nIGFuZCBhdXRvbWF0aWMgbWFpbnRlbmFuY2UgYWZ0ZXIgZXZlcnkgbWVyZ2UgaW50byBgbWFpbmAsIGluY2x1ZGluZyBHaXRIdWIgbWVyZ2UsIHNxdWFzaCwgYW5kIHJlYmFzZSBtZXJnZXMuCi0gRWFjaCBtZXJnZSBwdWJsaXNoZXMgYSBuZXcgYXBwIHZlcnNpb24gYXV0b21hdGljYWxseSBpZiBpdHMgY2hhbmdlcyBkbyBub3QgYWxyZWFkeSBpbmNsdWRlIGEgaGlnaGVyIHZlcnNpb24gbnVtYmVyLgotIFRoZSB1cGRhdGUgZGlhbG9nIHByZXNlbnRzIHJlbGVhc2Ugbm90ZXMgYmVmb3JlIGluc3RhbGxhdGlvbiBhbmQgYWdhaW4gYWZ0ZXIgYSBzdWNjZXNzZnVsIHVwZGF0ZS4gTm90ZXMgYXJlIHBpbm5lZCB0byB0aGUgc2FtZSBzb3VyY2UgcmV2aXNpb24gYXMgdGhlIGRvd25sb2FkZWQgUEhQIGZpbGUuCi0gVGhlIFBIUCBmaWxlIGluY2x1ZGVzIGJ1bmRsZWQgcmVsZWFzZSBub3RlcyBzbyBkZXBsb3ltZW50IGNvbnRpbnVlcyB0byByZXF1aXJlIG9ubHkgYGluZGV4LnBocGAuCgojIyMgU2VudCwgZm9sZGVyIGNsZWFudXAgYW5kIFdpbmRvd3MgZmlsZXMKCi0gU2VudC1mb2xkZXIgcm93cyBhbmQgY2FsZW5kYXIgZW50cmllcyBzaG93IHJlY2lwaWVudCBuYW1lcyBhbmQgYWRkcmVzc2VzLCB3aXRoIENjL0JjYyBmYWxsYmFjayB3aGVuIFRvIGlzIGVtcHR5LiBTZW5kZXIgZGV0YWlscyByZW1haW4gYXZhaWxhYmxlIGZvciByZXBsaWVzIGFuZCBzZW5kZXIgZmlsdGVyaW5nLgotIEFkZGVkIGEgcmVkIGNsZWFudXAgYmluIGFmdGVyIGVhY2ggZm9sZGVyJ3MgdW5yZWFkIGNvdW50LiBDaG9vc2Ugb25lIHdlZWssIG9uZSBtb250aCwgdHdvIG1vbnRocywgYWxsIG1lc3NhZ2VzLCBvciBhIGN1c3RvbSBkYXRlOyBjdXRvZmYgZGF0ZXMgYXJlIGluY2x1c2l2ZSBhbmQgZGlzcGxheWVkIGluIHRoZSBjb25maWd1cmVkIGFjY291bnQgdGltZXpvbmUuCi0gRm9sZGVyIGNsZWFudXAgcHJldmlld3MgYWxsIG1hdGNoaW5nIG1lc3NhZ2VzIGFuZCBhbHdheXMgcmVxdWlyZXMgdHlwaW5nIGBZRVMgREVMRVRFIEFMTGAuIFNlcnZlciBzbmFwc2hvdHMgYmluZCB0aGUgb3BlcmF0aW9uIHRvIHRoZSBhY2NvdW50LCBmb2xkZXIsIHNlbGVjdGVkIG1lc3NhZ2VzLCBhbmQgZGVzdGluYXRpb247IGJhdGNoZXMgY2FuIHJlc3VtZSBhZnRlciBhIGZhaWxlZCByZXF1ZXN0LgotIENsZWFudXAgbm9ybWFsbHkgbW92ZXMgbWVzc2FnZXMgdG8gVHJhc2guIENsZWFuaW5nIFRyYXNoLCBvciBhbiBJTUFQIGFjY291bnQgd2l0aG91dCBhIGRldGVjdGVkIFRyYXNoIGZvbGRlciwgZGVsZXRlcyBwZXJtYW5lbnRseTsgdGhlIGNvbmZpcm1hdGlvbiBleHBsYWlucyB3aGljaCBvcGVyYXRpb24gYXBwbGllcy4KLSBBZGRlZCBibGFjay1jYXQgYXBwbGljYXRpb24gYW5kIGRvY3VtZW50IGljb25zLCBhIFdpbmRvd3MgYC5pY29gLCBwb3J0YWJsZSBgLnBzZWAgZW1haWwgYW5kIGRyYWZ0IGZpbGVzLCBhbmQgbG9jYWwtZmlsZSBvcGVuaW5nIHdpdGggUmVwbHksIFJlcGx5IGFsbCwgRm9yd2FyZCwgYW5kIEVkaXQgY29weS4KLSBBZGRlZCBXaW5kb3dzIGFwcCBpbnN0YWxsYXRpb24sIGAucHNlYCBhc3NvY2lhdGlvbiwgYW5kIGljb24gc2V0dXAgaW5zdHJ1Y3Rpb25zIGluIGBSRUFETUUtV2luZG93cy1QU0UubWRgLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNjogWyMxXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8xKSDigJQgUmVsZWFzZSAyXC4xOFwuMTogU2VudCByZWNpcGllbnRzLCBmb2xkZXIgY2xlYW51cCwgUFNFIGZpbGVzIGFuZCB1cGRhdGUgY2hhbmdlbG9nLiBDb21taXQgW2NiMDJlZmZdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvY2IwMmVmZjE0MGFiZTgxYWIzZDVkOGRjMGEzZDQwZjE4OTNmOGVlNSkuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzEgLS0+Cg==', true) ?: '';
+  return base64_decode('IyBQU0UgRW1haWwgQ2xpZW50IGNoYW5nZWxvZwoKUmVsZWFzZSBub3RlcyBhcmUgc2hvd24gd2hlbiBjaGVja2luZyBmb3IgYW4gdXBkYXRlIGFuZCBhZnRlciBhbiB1cGRhdGUgaXMgaW5zdGFsbGVkLiBEYXRlcyBpbiBhdXRvbWF0aWNhbGx5IHJlY29yZGVkIG1lcmdlIGVudHJpZXMgdXNlIFVUQy4gVGhlIHJlcG9zaXRvcnkga2VlcHMgdGhlIGNvbXBsZXRlIGhpc3Rvcnk7IHRoZSBzaW5nbGUgUEhQIGZpbGUgYnVuZGxlcyB0aGUgbGF0ZXN0IG5vdGVzIGZvciBvZmZsaW5lIHVzZS4KCiMjIDIuMTguOSAoMjAyNi0xMC0xMCkKCi0gVG9nZ2xlIGJ1dHRvbnMgdmlzaWJseSByZXR1cm4gdG8gdW5zZWxlY3RlZCB3aGVuIHRhcHBlZCBhZ2FpbiwgaW5jbHVkaW5nIG9uIHRvdWNoIGJyb3dzZXJzIHRoYXQgcmV0YWluIGhvdmVyIHN0eWxpbmcuIEZ1bGwgc2NyZWVuLCBtdWx0aXBsZSBzZWxlY3Rpb24sIGZpbHRlcnMsIGNhbGVuZGFyLCBsYXlvdXQgYW5kIGNvbXBvc2UgbWF4aW1pemUgYnV0dG9ucyBrZWVwIHRoZWlyIHZpc3VhbCBhbmQgYWNjZXNzaWJsZSBzdGF0ZSBpbiBzeW5jLgotIFRoZSBmb290ZXIgdW5yZWFkIGZpbHRlciBhbmQgY3VycmVudC1wYWdlL2FsbC1wYWdlcyBzZWxlY3Rpb24gY29udHJvbHMgbm93IHRvZ2dsZSBvZmYgb24gYSBzZWNvbmQgdGFwLiBGaWx0ZXIgY2hhbmdlcyByZXNldCBzZWxlY3Rpb24gY29udHJvbHMgaW1tZWRpYXRlbHksIGFuZCBvdXRkYXRlZCBJRCByZXNwb25zZXMgY2Fubm90IHJlYWN0aXZhdGUgY2xlYXJlZCBzZWxlY3Rpb25zIG9yIHNlbGVjdCBtZXNzYWdlcyBpbiBhbm90aGVyIHZpZXcuCgojIyAyLjE4LjggKDIwMjYtMTAtMTApCgotIE1vYmlsZSBzZWFyY2ggZml0cyBpbiB0aGUgdG9wIGhlYWRlciByb3cgYmVzaWRlIHRoZSBhdmF0YXIgYW5kIGFjdGlvbiBidXR0b25zLiBUaGUgZmllbGQgY2FuIHNocmluayB3aXRoIGEgY2xpcHBlZCBwbGFjZWhvbGRlciwgYW5kIGVkaXRpbmcgZnJlZXMgdGhlIHNlYXJjaCBpY29uJ3Mgc3BhY2UgZm9yIHRleHQuCi0gUG9ydGFibGUgZW1haWwgKC5QU0UpIGlzIHRoZSBmaXJzdCBvcHRpb24gaW4gdGhlIG1lc3NhZ2UgRXhwb3J0IG1lbnUsIGFoZWFkIG9mIE9yaWdpbmFsIGVtYWlsICguZW1sKS4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMTA6IFsjOF0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvOCkg4oCUIFJlbGVhc2UgMlwuMThcLjg6IGZpdCBtb2JpbGUgc2VhcmNoIGF0IHRoZSB0b3AgYW5kIHB1dCBQU0UgZXhwb3J0IGZpcnN0LiBDb21taXQgW2RkMDM3MjZdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvZGQwMzcyNjNhNmZkYjAwZmU1MjVlZDM4ZWY3YmMxODA5N2Y2ZDZhOCkuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzggLS0+CgojIyAyLjE4LjcgKDIwMjYtMTAtMTApCgotIFNldHRpbmdzIOKGkiBBcHBlYXJhbmNlIG5vdyBpbmNsdWRlcyBhIGZ1bGwgc2NyZWVuIHByZWZlcmVuY2UgYW5kIGVudGVyL2V4aXQgY29udHJvbHMsIHJlbWVtYmVyZWQgaW1tZWRpYXRlbHkgaW4gdGhlIGN1cnJlbnQgYnJvd3Nlci4KLSBTdXBwb3J0ZWQgbW9iaWxlIGJyb3dzZXJzIGFzayBvbmNlIHdoZXRoZXIgdG8gdXNlIGZ1bGwgc2NyZWVuLiBCb3RoIGFuc3dlcnMgYXJlIHJlbWVtYmVyZWQ7IHJlb3BlbmluZyB3aXRoIGZ1bGwgc2NyZWVuIHByZWZlcnJlZCBzaG93cyBhIGhlYWRlciBidXR0b24gdG8gcmVzdW1lIHdpdGggdGhlIHRhcCByZXF1aXJlZCBieSB0aGUgYnJvd3Nlci4KLSBUaGUgZmlyc3QgbW9iaWxlIHByb21wdCB3YWl0cyBmb3IgbG9jYWwtZmlsZSBvcGVuaW5nLCB1cGRhdGUgbm90aWNlcyBhbmQgb3RoZXIgZGlhbG9ncy4gQnJvd3NlciBleGl0cyBhbmQgZmFpbGVkIHJlcXVlc3RzIGtlZXAgdGhlIHNhdmVkIHByZWZlcmVuY2UgYXZhaWxhYmxlIGZvciBhIGxhdGVyIHJldHJ5LgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0xMDogWyM3XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC83KSDigJQgUmVsZWFzZSAyXC4xOFwuNzogcmVtZW1iZXJlZCBmdWxsIHNjcmVlbiBhbmQgZmlyc3QgbW9iaWxlIHByb21wdC4gQ29tbWl0IFsxMjEwMjM3XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0LzEyMTAyMzc5M2Q2YmRhMDFkNDBlOTUzMjkyNzJjZTFkN2Y0YjAzNTMpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCM3IC0tPgoKIyMgMi4xOC42ICgyMDI2LTEwLTEwKQoKLSBPbiBwaG9uZXMsIHNlYXJjaCBub3cgb2NjdXBpZXMgaXRzIG93biBmdWxsLXdpZHRoIGhlYWRlciByb3cuIFRoZSBpY29uLCB0ZXh0IGZpZWxkLCBzYXZlZC1zZWFyY2ggYW5kIGNsZWFyIGJ1dHRvbnMgc3RheSB0b2dldGhlciB3aXRob3V0IHdyYXBwaW5nLgotIFVsdHJhIENvbXBhY3QgbW9kZSBubyBsb25nZXIgcmVzZXJ2ZXMgZGVza3RvcCBsb2dvIHNwYWNlIG9uIG1vYmlsZS4gVGhlIG1lc3NhZ2UgYXJlYSBhZGp1c3RzIHRvIHRoZSBoZWFkZXIgaGVpZ2h0LCBrZWVwaW5nIHRoZSBmb290ZXIgbmF2aWdhdGlvbiBvbiBzY3JlZW4uCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTEwOiBbIzZdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzYpIOKAlCBSZWxlYXNlIDJcLjE4XC42OiBmaXggbW9iaWxlIHNlYXJjaCBsYXlvdXQuIENvbW1pdCBbNWFhNWM4Nl0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC81YWE1Yzg2NTdkZjRiM2NjOWZkNjgzNzdiYTk2ZWE2MjMwZjJmOTY3KS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjNiAtLT4KCiMjIDIuMTguNSAoMjAyNi0xMC0xMCkKCi0gUG9ydGFibGUgYC5wc2VgIGVtYWlsIGV4cG9ydHMgYW5kIGRvd25sb2FkZWQgY29tcG9zZSBkcmFmdHMgbm93IGxldCB5b3UgY2hvb3NlIHRoZSBmb2xkZXIgYW5kIGZpbGUgbmFtZSwganVzdCBsaWtlIHNhdmluZyBhdHRhY2htZW50cywgd2hlbiB0aGUgYnJvd3NlciBzdXBwb3J0cyB0aGUgbmF0aXZlIFNhdmUgQXMgZGlhbG9nLgotIENhbmNlbGxpbmcgU2F2ZSBBcyBzdG9wcyBiZWZvcmUgYXR0YWNobWVudHMgYXJlIHByZXBhcmVkLiBCcm93c2VycyB3aXRob3V0IHRoZSBuYXRpdmUgZGlhbG9nIG9mZmVyIGEgZmlsZS1uYW1lIHByb21wdCBhbmQga2VlcCB1c2luZyBub3JtYWwgZG93bmxvYWRzLgotIFVwZGF0ZXMgbm93IHJ1biBhdXRvbWF0ZWQgY2hlY2tzIGZvciBtYWlsYm94IHN5bmNocm9uaXphdGlvbiwgY2FjaGluZywgZGVsZXRpb25zLCBjbGVhbnVwLCBmaWxlIG9wZW5pbmcgYW5kIGV4cG9ydHMgYmVmb3JlIG1lcmdpbmcgY2hhbmdlcy4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMTA6IFsjNV0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvNSkg4oCUIFJlbGVhc2UgMlwuMThcLjU6IFNhdmUgQXMgZm9yIFBTRSBmaWxlcyBhbmQgcmVncmVzc2lvbiBDSS4gQ29tbWl0IFs4YjdkMTk3XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0LzhiN2QxOTc2M2EwMTJjOGE1YWNkN2Y3NzllOWM3NWUxYWI1OWZjZTUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCM1IC0tPgoKIyMgMi4xOC40ICgyMDI2LTEwLTA3KQoKLSBRdWV1aW5nIGEgZGVsZXRpb24gaW1tZWRpYXRlbHkgcmVtb3ZlcyBpdHMgcm93cyBmcm9tIHRoZSB2aXNpYmxlIGZvbGRlciwgaW5jbHVkaW5nIGFmdGVyIEdtYWlsIGhpc3RvcnkgaGFzIGludmFsaWRhdGVkIHRoZSBwYWdlIGNhY2hlLiBSZWFkL3VucmVhZCwgcmVzdG9yZSBhbmQgcGVybWFuZW50LWRlbGV0ZSBhY3Rpb25zIGFsc28gdXBkYXRlIHZpc2libGUgcm93cyB3aXRob3V0IHJlbHlpbmcgb24gYSBjYWNoZWQgcGFnZS4KLSBSZWZyZXNoZWQgbGlzdHMgaGlkZSBwZW5kaW5nIHF1ZXVlZCBkZWxldGlvbnMgdW50aWwgdGhleSBhcmUgcHJvY2Vzc2VkIG9yIHVuZG9uZS4gT3B0aW1pc3RpYyBjYWNoZSB1cGRhdGVzIHByZXNlcnZlIEdtYWlsIHJldmlzaW9uIGFuZCB2aWV3LWZpbHRlciBtZXRhZGF0YS4KLSBCYWNrZ3JvdW5kIGxpc3QgcmVzcG9uc2VzIHN0YXJ0ZWQgYmVmb3JlIGEgbWFpbGJveCBhY3Rpb24gY2Fubm90IHJlcGxhY2UgdGhlIHVwZGF0ZWQgbGlzdC4gTXVsdGktYmF0Y2ggZGVsZXRpb24ga2VlcHMgdXNpbmcgaXRzIG9yaWdpbmFsIGZvbGRlciB3aGVuIHRoZSB1c2VyIG5hdmlnYXRlcyBlbHNld2hlcmUuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTA3OiBbIzRdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzQpIOKAlCBSZWxlYXNlIDJcLjE4XC40OiByZW1vdmUgcXVldWVkIGRlbGV0aW9ucyBmcm9tIG1lc3NhZ2UgbGlzdHMgaW1tZWRpYXRlbHkuIENvbW1pdCBbMzI3YWIwNV0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC8zMjdhYjA1OWFjZjZmNGYzZDc0Zjg2Mjc4YTRjYWZkMWQyYzY2OGVjKS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjNCAtLT4KCiMjIDIuMTguMyAoMjAyNi0xMC0wNikKCi0gR21haWwgYWNjb3VudHMgbm93IHNhdmUgYSBwZXItYWNjb3VudCBgaGlzdG9yeUlkYCBjaGVja3BvaW50IGFuZCByZXF1ZXN0IG1haWxib3ggY2hhbmdlcyBzaW5jZSB0aGUgbGFzdCBzdWNjZXNzZnVsIHN5bmMuIFVuY2hhbmdlZCBtZXNzYWdlIGRldGFpbHMsIGJvZGllcyBhbmQgY2FsZW5kYXIgZW50cmllcyBhcmUgcmV1c2VkIGZyb20gY2FjaGUuCi0gTmV3IG1haWwsIHJlYWQvdW5yZWFkIGNoYW5nZXMsIG1vdmVzLCBkZWxldGlvbnMgYW5kIGRyYWZ0IGNoYW5nZXMgdXBkYXRlIHRoZSByZWxldmFudCBmb2xkZXJzLiBCYWNrZ3JvdW5kIHJlZnJlc2ggcHJlc2VydmVzIHRoZSB2aXNpYmxlIEdtYWlsIHBhZ2UgYW5kIGZpbHRlcnMsIGluY2x1ZGluZyBjaGFuZ2VzIHRoYXQgbGVhdmUgbWVzc2FnZSBjb3VudHMgdW5jaGFuZ2VkLgotIEV4cGlyZWQgR21haWwgaGlzdG9yeSBjaGVja3BvaW50cyByZWJ1aWxkIHRoZSByZXF1ZXN0ZWQgY2FjaGVkIHZpZXdzIHNhZmVseS4gSW50ZXJydXB0ZWQsIHJhdGUtbGltaXRlZCBvciBmYWlsZWQgcmVxdWVzdHMgcHJlc2VydmUgdGhlIGNoZWNrcG9pbnQgYW5kIGF2YWlsYWJsZSBjYWNoZWQgbWVzc2FnZXMgZm9yIHJldHJ5LgotIFN5bmNocm9uaXphdGlvbiBjb29yZGluYXRlcyBjb25jdXJyZW50IHJlcXVlc3RzLCBrZWVwcyBhY2NvdW50cyBpc29sYXRlZCwgYW5kIHJlamVjdHMgc3RhbGUgY2FjaGUgd3JpdGVzLiBMb2NhbCBtYWlsYm94IGFjdGlvbnMgaW52YWxpZGF0ZSBvciB1cGRhdGUgdGhlIGNvcnJlc3BvbmRpbmcgY2FjaGVkIG1lc3NhZ2VzLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNjogWyMzXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8zKSDigJQgUmVsZWFzZSAyXC4xOFwuMzogaW5jcmVtZW50YWwgR21haWwgc3luYyB1c2luZyBoaXN0b3J5SWQuIENvbW1pdCBbNjdmMzgxNF0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC82N2YzODE0ZjA1OWIyMWE3MWYwYmIyOGQ2MDRkM2VmNzk3NjM3NzViKS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjMyAtLT4KCiMjIDIuMTguMiAoMjAyNi0xMC0wNikKCi0gT3BlbmluZyBhIGAucHNlYCBmaWxlIHJlcXVlc3RzIHRoZSBleGlzdGluZyBQV0Egd2luZG93IHdpdGhvdXQgcmVsb2FkaW5nIGl0IG9uIGJyb3dzZXJzIHN1cHBvcnRpbmcgdGhlIExhdW5jaCBIYW5kbGVyIEFQSS4gTXVsdGlwbGUgZmlsZXMgb3BlbmVkIHRvZ2V0aGVyIHNoYXJlIG9uZSB3aW5kb3cuCi0gQSBuZXcgZmlsZS1sYXVuY2ggd2luZG93IGdvZXMgZGlyZWN0bHkgdG8gaXRzIGxvY2FsIGZpbGVzLiBTdGFydHVwIGZvbGRlci9tZXNzYWdlIHN5bmNpbmcsIHF1ZXVlZCBtYWlsYm94IHdvcmssIHBvbGxpbmcsIGFuZCBtZXNzYWdlIHByZWZldGNoIHN0YXkgcGF1c2VkIHVudGlsIE9wZW4gbWFpbGJveCBvciBSZWZyZXNoIGlzIGNob3Nlbi4gUGFzc3dvcmQgc2lnbi1pbiBwcmVzZXJ2ZXMgdGhpcyBiZWhhdmlvci4KLSBGb2xkZXIgY2xlYW51cCBub3cgc2hvd3MgYSBwcm9ncmVzcyBiYXIsIHNwaW5uZXIsIHByb2Nlc3NlZCBjb3VudHMsIGVzdGltYXRlZCBmaW5pc2ggdGltZSwgYW5kIENhbmNlbC4gRXN0aW1hdGVzIGFkanVzdCBhZnRlciBjb21wbGV0ZWQgYmF0Y2hlcy4gQ2FuY2VsbGF0aW9uIHN0b3BzIGZ1dHVyZSBiYXRjaGVzIGFmdGVyIHRoZSBjdXJyZW50IHJlcXVlc3QgZmluaXNoZXMgYW5kIHByZXNlcnZlcyB0aGUgcmVtYWluaW5nIHNlbGVjdGlvbiBmb3IgYSBjb25maXJtZWQgcmVzdW1lLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNjogWyMyXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8yKSDigJQgUmVsZWFzZSAyXC4xOFwuMjogZmFzdCBQU0UgZmlsZSBsYXVuY2hlcyBhbmQgY2FuY2VsbGFibGUgY2xlYW51cCBwcm9ncmVzcy4gQ29tbWl0IFs3ODhiZDIyXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0Lzc4OGJkMjI0ZmZjODcxMDE4YzkwNDBjNGRiMGJkNzM4ZGQ4YzU1YzUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMyIC0tPgoKIyMgMi4xOC4xICgyMDI2LTEwLTA2KQoKLSBBZGRlZCB0aGlzIGNoYW5nZWxvZyBhbmQgYXV0b21hdGljIG1haW50ZW5hbmNlIGFmdGVyIGV2ZXJ5IG1lcmdlIGludG8gYG1haW5gLCBpbmNsdWRpbmcgR2l0SHViIG1lcmdlLCBzcXVhc2gsIGFuZCByZWJhc2UgbWVyZ2VzLgotIEVhY2ggbWVyZ2UgcHVibGlzaGVzIGEgbmV3IGFwcCB2ZXJzaW9uIGF1dG9tYXRpY2FsbHkgaWYgaXRzIGNoYW5nZXMgZG8gbm90IGFscmVhZHkgaW5jbHVkZSBhIGhpZ2hlciB2ZXJzaW9uIG51bWJlci4KLSBUaGUgdXBkYXRlIGRpYWxvZyBwcmVzZW50cyByZWxlYXNlIG5vdGVzIGJlZm9yZSBpbnN0YWxsYXRpb24gYW5kIGFnYWluIGFmdGVyIGEgc3VjY2Vzc2Z1bCB1cGRhdGUuIE5vdGVzIGFyZSBwaW5uZWQgdG8gdGhlIHNhbWUgc291cmNlIHJldmlzaW9uIGFzIHRoZSBkb3dubG9hZGVkIFBIUCBmaWxlLgotIFRoZSBQSFAgZmlsZSBpbmNsdWRlcyBidW5kbGVkIHJlbGVhc2Ugbm90ZXMgc28gZGVwbG95bWVudCBjb250aW51ZXMgdG8gcmVxdWlyZSBvbmx5IGBpbmRleC5waHBgLgoKIyMjIFNlbnQsIGZvbGRlciBjbGVhbnVwIGFuZCBXaW5kb3dzIGZpbGVzCgotIFNlbnQtZm9sZGVyIHJvd3MgYW5kIGNhbGVuZGFyIGVudHJpZXMgc2hvdyByZWNpcGllbnQgbmFtZXMgYW5kIGFkZHJlc3Nlcywgd2l0aCBDYy9CY2MgZmFsbGJhY2sgd2hlbiBUbyBpcyBlbXB0eS4gU2VuZGVyIGRldGFpbHMgcmVtYWluIGF2YWlsYWJsZSBmb3IgcmVwbGllcyBhbmQgc2VuZGVyIGZpbHRlcmluZy4KLSBBZGRlZCBhIHJlZCBjbGVhbnVwIGJpbiBhZnRlciBlYWNoIGZvbGRlcidzIHVucmVhZCBjb3VudC4gQ2hvb3NlIG9uZSB3ZWVrLCBvbmUgbW9udGgsIHR3byBtb250aHMsIGFsbCBtZXNzYWdlcywgb3IgYSBjdXN0b20gZGF0ZTsgY3V0b2ZmIGRhdGVzIGFyZSBpbmNsdXNpdmUgYW5kIGRpc3BsYXllZCBpbiB0aGUgY29uZmlndXJlZCBhY2NvdW50IHRpbWV6b25lLgotIEZvbGRlciBjbGVhbnVwIHByZXZpZXdzIGFsbCBtYXRjaGluZyBtZXNzYWdlcyBhbmQgYWx3YXlzIHJlcXVpcmVzIHR5cGluZyBgWUVTIERFTEVURSBBTExgLiBTZXJ2ZXIgc25hcHNob3RzIGJpbmQgdGhlIG9wZXJhdGlvbiB0byB0aGUgYWNjb3VudCwgZm9sZGVyLCBzZWxlY3RlZCBtZXNzYWdlcywgYW5kIGRlc3RpbmF0aW9uOyBiYXRjaGVzIGNhbiByZXN1bWUgYWZ0ZXIgYSBmYWlsZWQgcmVxdWVzdC4KLSBDbGVhbnVwIG5vcm1hbGx5IG1vdmVzIG1lc3NhZ2VzIHRvIFRyYXNoLiBDbGVhbmluZyBUcmFzaCwgb3IgYW4gSU1BUCBhY2NvdW50IHdpdGhvdXQgYSBkZXRlY3RlZCBUcmFzaCBmb2xkZXIsIGRlbGV0ZXMgcGVybWFuZW50bHk7IHRoZSBjb25maXJtYXRpb24gZXhwbGFpbnMgd2hpY2ggb3BlcmF0aW9uIGFwcGxpZXMuCi0gQWRkZWQgYmxhY2stY2F0IGFwcGxpY2F0aW9uIGFuZCBkb2N1bWVudCBpY29ucywgYSBXaW5kb3dzIGAuaWNvYCwgcG9ydGFibGUgYC5wc2VgIGVtYWlsIGFuZCBkcmFmdCBmaWxlcywgYW5kIGxvY2FsLWZpbGUgb3BlbmluZyB3aXRoIFJlcGx5LCBSZXBseSBhbGwsIEZvcndhcmQsIGFuZCBFZGl0IGNvcHkuCi0gQWRkZWQgV2luZG93cyBhcHAgaW5zdGFsbGF0aW9uLCBgLnBzZWAgYXNzb2NpYXRpb24sIGFuZCBpY29uIHNldHVwIGluc3RydWN0aW9ucyBpbiBgUkVBRE1FLVdpbmRvd3MtUFNFLm1kYC4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMDY6IFsjMV0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvMSkg4oCUIFJlbGVhc2UgMlwuMThcLjE6IFNlbnQgcmVjaXBpZW50cywgZm9sZGVyIGNsZWFudXAsIFBTRSBmaWxlcyBhbmQgdXBkYXRlIGNoYW5nZWxvZy4gQ29tbWl0IFtjYjAyZWZmXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0L2NiMDJlZmYxNDBhYmU4MWFiM2Q1ZDhkYzBhM2Q0MGYxODkzZjhlZTUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMxIC0tPgo=', true) ?: '';
 }
 /* PSE_EMBEDDED_CHANGELOG_END */
 
@@ -14344,6 +14344,14 @@ if (!headers_sent()) {
       font-size: var(--pse-font-size);
     }
     .btn-primary { --bs-btn-bg: var(--pse-primary); --bs-btn-border-color: var(--pse-primary); }
+    /* Touch browsers can retain :hover after tapping a toggle off. */
+    .btn[aria-pressed="false"]:not(:disabled):hover,
+    .btn[aria-pressed="false"]:not(:disabled):focus-visible,
+    .btn[aria-pressed="false"]:not(:disabled):active {
+      color: var(--bs-btn-color);
+      background-color: var(--bs-btn-bg);
+      border-color: var(--bs-btn-border-color);
+    }
     .text-pse { color: var(--pse-primary) !important; }
     .pse-auth-page {
       min-height: 100vh;
@@ -15451,6 +15459,14 @@ if (!headers_sent()) {
     .pse-footer-action:focus-visible {
       color: var(--pse-primary);
       text-decoration: underline;
+    }
+    .pse-footer-action[aria-pressed="true"] {
+      color: var(--pse-primary);
+      text-decoration: underline;
+    }
+    .pse-footer-action[aria-pressed="false"]:hover {
+      color: inherit;
+      text-decoration: none;
     }
     .pse-status-dot {
       width: 8px;
@@ -16591,7 +16607,7 @@ if (!headers_sent()) {
                 <span class="text-truncate" id="currentFolderName">Inbox</span>
                 <i class="fa-solid fa-arrow-down small" id="currentFolderSortIcon" aria-hidden="true"></i>
               </button>
-              <button class="btn btn-sm btn-outline-secondary" id="toggleUnreadOnly" title="Show only unread messages">
+              <button class="btn btn-sm btn-outline-secondary" id="toggleUnreadOnly" title="Show only unread messages" aria-pressed="false">
                 <i class="fa-regular fa-envelope"></i>
               </button>
               <button
@@ -16599,6 +16615,7 @@ if (!headers_sent()) {
                 id="filterSameSender"
                 title="Select an email first, then show only messages from the same sender"
                 aria-label="Show only messages from the same sender"
+                aria-pressed="false"
                 disabled
               >
                 <i class="fa-solid fa-user-tag"></i>
@@ -16638,15 +16655,15 @@ if (!headers_sent()) {
               <button class="btn btn-sm btn-outline-secondary" id="nextPage" title="Next page">
                 <i class="fa-solid fa-chevron-right"></i>
               </button>
-              <button class="btn btn-sm btn-outline-primary" id="toggleMultiSelect" title="Enable multiple selection">
+              <button class="btn btn-sm btn-outline-primary" id="toggleMultiSelect" title="Enable multiple selection" aria-pressed="false">
                 <i class="fa-regular fa-square-check"></i>
               </button>
             </div>
             <div class="d-none align-items-center gap-1 mt-2" id="bulkActions">
-              <button class="btn btn-sm btn-outline-secondary" id="bulkSelectAll" title="Select all on this page">
+              <button class="btn btn-sm btn-outline-secondary" id="bulkSelectAll" title="Select all on this page" aria-pressed="false">
                 <i class="fa-solid fa-check-double"></i>
               </button>
-              <button class="btn btn-sm btn-outline-secondary" id="bulkSelectAllPages" title="Select all emails in all pages">
+              <button class="btn btn-sm btn-outline-secondary" id="bulkSelectAllPages" title="Select all emails in all pages" aria-pressed="false">
                 <i class="fa-solid fa-layer-group"></i>
               </button>
               <button class="btn btn-sm btn-outline-secondary" id="bulkClear" title="Clear selection">
@@ -16705,7 +16722,7 @@ if (!headers_sent()) {
       <span><span class="pse-status-dot" id="connectionDot"></span><span class="pse-footer-label" id="connectionText">Not connected</span></span>
       <button class="pse-footer-action" id="footerFolderAction" title="Show all messages in this folder"><i class="fa-regular fa-folder me-1"></i><span class="pse-footer-label" id="statFolder">Inbox</span></button>
       <button class="pse-footer-action" id="footerMessagesAction" title="Show all messages"><i class="fa-regular fa-envelope me-1"></i><span id="statMessages">0</span><span class="pse-footer-label"> messages</span></button>
-      <button class="pse-footer-action" id="footerUnreadAction" title="Show only unread messages"><i class="fa-solid fa-envelope-circle-check me-1"></i><span id="statUnread">0</span><span class="pse-footer-label"> unread</span></button>
+      <button class="pse-footer-action" id="footerUnreadAction" title="Show only unread messages" aria-pressed="false"><i class="fa-solid fa-envelope-circle-check me-1"></i><span id="statUnread">0</span><span class="pse-footer-label"> unread</span></button>
       <button class="pse-footer-action" id="footerContactsAction" title="Open contacts"><i class="fa-solid fa-address-book me-1"></i><span id="statContacts">0</span><span class="pse-footer-label"> contacts</span></button>
       <button class="pse-footer-action" id="footerQueueAction" title="No queued deletions to undo" disabled><i class="fa-solid fa-list-check me-1"></i><span id="statQueue">0</span><span class="pse-footer-label"> queued</span></button>
       <button class="ms-auto pse-footer-version" id="footerVersionCheck" type="button" title="Check GitHub for a newer version">PSE <?= PSE_VERSION ?></button>
@@ -17341,7 +17358,7 @@ if (!headers_sent()) {
                   <div class="border rounded-3 p-3" id="fullscreenSettingsCard">
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                       <div class="fw-semibold flex-grow-1"><i class="fa-solid fa-expand me-1" aria-hidden="true"></i>Full screen</div>
-                      <button class="btn btn-sm btn-outline-primary" id="settingsFullscreenToggle" type="button">Enter full screen</button>
+                      <button class="btn btn-sm btn-outline-primary" id="settingsFullscreenToggle" type="button" aria-pressed="false">Enter full screen</button>
                     </div>
                     <div class="form-check">
                       <input class="form-check-input" id="preferFullscreen" type="checkbox" aria-describedby="fullscreenSettingsHelp fullscreenSettingsStatus">
@@ -17583,6 +17600,8 @@ if (!headers_sent()) {
         multiSelect: false,
         selectedUids: new Set(),
         allPagesSelected: false,
+        bulkSelectionRequestSerial: 0,
+        bulkSelectionView: '',
         page: 1,
         pages: 1,
         search: '',
@@ -18559,14 +18578,21 @@ if (!headers_sent()) {
         unreadButton.classList.toggle('btn-primary', state.unreadOnly);
         unreadButton.title = state.unreadOnly ? 'Show all messages' : 'Show only unread messages';
         unreadButton.setAttribute('aria-pressed', String(state.unreadOnly));
+        unreadButton.setAttribute('aria-label', unreadButton.title);
         unreadButton.innerHTML = state.unreadOnly
           ? '<i class="fa-solid fa-envelope-open"></i>'
           : '<i class="fa-regular fa-envelope"></i>';
+        const footerUnread = $('#footerUnreadAction');
+        footerUnread.classList.toggle('active', state.unreadOnly);
+        footerUnread.setAttribute('aria-pressed', String(state.unreadOnly));
+        footerUnread.title = unreadButton.title;
+        footerUnread.setAttribute('aria-label', footerUnread.title);
         $('#restoreLastSearch').classList.toggle('d-none', !state.lastSearch);
         updateCurrentFolderHeading();
         updateSameSenderFilterButton();
         updateAttachmentFilterButton();
         updateCalendarButton();
+        updateBulkUI();
       }
 
       function loadMailboxPreferences() {
@@ -20289,6 +20315,7 @@ if (!headers_sent()) {
       }
 
       function setBulkSelected(uid, selected) {
+        state.bulkSelectionRequestSerial++;
         uid = String(uid);
         state.allPagesSelected = false;
         if (selected) {
@@ -20299,21 +20326,49 @@ if (!headers_sent()) {
         renderMessages();
       }
 
+      function bulkSelectionContext() {
+        return {
+          folder: state.folder,
+          search: state.search,
+          senderFilter: state.senderFilter,
+          attachmentFilter: state.attachmentFilter,
+          unreadOnly: state.unreadOnly,
+          startDate: state.startDate,
+          sortOrder: state.sortOrder
+        };
+      }
+
       function updateBulkUI() {
+        const view = JSON.stringify(bulkSelectionContext());
+        if (state.bulkSelectionView !== view) {
+          state.bulkSelectionView = view;
+          state.bulkSelectionRequestSerial++;
+        }
         const actions = $('#bulkActions');
         actions.classList.toggle('d-none', !state.multiSelect);
         actions.classList.toggle('d-flex', state.multiSelect);
         $('#toggleMultiSelect').classList.toggle('active', state.multiSelect);
         $('#toggleMultiSelect').title = state.multiSelect ? 'Disable multiple selection' : 'Enable multiple selection';
+        $('#toggleMultiSelect').setAttribute('aria-pressed', String(state.multiSelect));
+        $('#toggleMultiSelect').setAttribute('aria-label', $('#toggleMultiSelect').title);
+        const pageSelected = state.multiSelect && state.messages.length > 0 &&
+          state.messages.every(message => state.selectedUids.has(String(message.uid)));
+        const pageButton = $('#bulkSelectAll');
+        pageButton.classList.toggle('active', pageSelected);
+        pageButton.setAttribute('aria-pressed', String(pageSelected));
+        pageButton.title = pageSelected ? 'Deselect all on this page' : 'Select all on this page';
+        pageButton.setAttribute('aria-label', pageButton.title);
         $('#bulkCount').textContent = state.allPagesSelected
           ? `${state.selectedUids.size} selected — all pages`
           : `${state.selectedUids.size} selected`;
         const allPagesButton = $('#bulkSelectAllPages');
         if (allPagesButton) {
           allPagesButton.classList.toggle('active', state.allPagesSelected);
+          allPagesButton.setAttribute('aria-pressed', String(state.allPagesSelected));
           allPagesButton.title = state.allPagesSelected
-            ? 'All emails in all pages are selected'
+            ? 'Clear selection in all pages'
             : 'Select all emails in all pages';
+          allPagesButton.setAttribute('aria-label', allPagesButton.title);
         }
         const inTrash = currentFolderIsTrash();
         $('#bulkDelete').classList.toggle('d-none', inTrash);
@@ -20325,6 +20380,7 @@ if (!headers_sent()) {
       }
 
       function toggleMultiSelect() {
+        state.bulkSelectionRequestSerial++;
         state.multiSelect = !state.multiSelect;
         state.selectedUids.clear();
         state.allPagesSelected = false;
@@ -20333,23 +20389,25 @@ if (!headers_sent()) {
 
       async function selectAllMessagesAcrossPages() {
         if (!state.multiSelect) return;
+        const requestSerial = ++state.bulkSelectionRequestSerial;
+        if (state.allPagesSelected) {
+          state.selectedUids.clear();
+          state.allPagesSelected = false;
+          renderMessages();
+          return;
+        }
+        const context = bulkSelectionContext();
         try {
-          const result = await api('message_ids', {
-            folder: state.folder,
-            search: state.search,
-            senderFilter: state.senderFilter,
-            attachmentFilter: state.attachmentFilter,
-            unreadOnly: state.unreadOnly,
-            startDate: state.startDate,
-            sortOrder: state.sortOrder
-          }, {spinnerText: 'Selecting all emails in all pages…'});
+          const result = await api('message_ids', context, {spinnerText: 'Selecting all emails in all pages…'});
+          if (!state.multiSelect || requestSerial !== state.bulkSelectionRequestSerial ||
+            Object.entries(context).some(([key, value]) => state[key] !== value)) return;
           const uids = Array.isArray(result.uids) ? result.uids.map(String).filter(Boolean) : [];
           state.selectedUids = new Set(uids);
-          state.allPagesSelected = true;
+          state.allPagesSelected = uids.length > 0;
           renderMessages();
           toast(`${uids.length} email${uids.length === 1 ? '' : 's'} selected across all pages.`);
         } catch (error) {
-          handleError(error);
+          if (state.multiSelect && requestSerial === state.bulkSelectionRequestSerial) handleError(error);
         }
       }
 
@@ -22488,6 +22546,7 @@ if (!headers_sent()) {
           viewButton.title = title;
           viewButton.setAttribute('aria-label', title);
           viewButton.setAttribute('aria-pressed', stacked ? 'true' : 'false');
+          viewButton.classList.toggle('active', stacked);
           resizer2.setAttribute('aria-orientation', stacked ? 'horizontal' : 'vertical');
         }
 
@@ -23384,6 +23443,7 @@ if (!headers_sent()) {
         button.title = isMaximized ? 'Restore compose window' : 'Maximize compose window';
         button.setAttribute('aria-label', button.title);
         button.setAttribute('aria-pressed', isMaximized ? 'true' : 'false');
+        button.classList.toggle('active', isMaximized);
         if (remember) rememberComposeMaximizedState(isMaximized);
         requestAnimationFrame(positionRecipientSuggestions);
       }
@@ -26092,12 +26152,16 @@ if (!headers_sent()) {
       });
       $('#toggleMultiSelect').addEventListener('click', toggleMultiSelect);
       $('#bulkSelectAll').addEventListener('click', () => {
+        state.bulkSelectionRequestSerial++;
+        const uids = state.messages.map(message => String(message.uid));
+        const clear = uids.length > 0 && uids.every(uid => state.selectedUids.has(uid));
         state.allPagesSelected = false;
-        state.messages.forEach(message => state.selectedUids.add(message.uid));
+        uids.forEach(uid => clear ? state.selectedUids.delete(uid) : state.selectedUids.add(uid));
         renderMessages();
       });
       $('#bulkSelectAllPages').addEventListener('click', selectAllMessagesAcrossPages);
       $('#bulkClear').addEventListener('click', () => {
+        state.bulkSelectionRequestSerial++;
         state.selectedUids.clear();
         state.allPagesSelected = false;
         renderMessages();
@@ -26130,7 +26194,7 @@ if (!headers_sent()) {
       $('#spaceUsedDetails').addEventListener('hidden.bs.collapse', () => {
         $('#spaceUsedToggle').setAttribute('aria-expanded', 'false');
       });
-      $('#footerUnreadAction').addEventListener('click', () => setUnreadOnlyView(true, true));
+      $('#footerUnreadAction').addEventListener('click', () => setUnreadOnlyView(!state.unreadOnly, true));
       $('#footerMessagesAction').addEventListener('click', () => setUnreadOnlyView(false, true));
       $('#footerFolderAction').addEventListener('click', () => {
         if (isSinglePaneMobileActive()) {
@@ -26698,12 +26762,15 @@ if (!headers_sent()) {
         $('#preferFullscreen').disabled = fullscreenBusy || (!supported && fullscreenPreference !== true);
         $('#settingsFullscreenToggle').disabled = fullscreenBusy || !canToggle;
         $('#settingsFullscreenToggle').textContent = active ? 'Exit full screen' : 'Enter full screen';
+        $('#settingsFullscreenToggle').setAttribute('aria-pressed', String(active));
+        $('#settingsFullscreenToggle').classList.toggle('active', active);
         const button = $('#toggleFullscreen');
         button.classList.toggle('d-none', !canToggle || (!nativeActive && fullscreenPreference !== true));
         button.disabled = fullscreenBusy;
         button.title = active ? 'Exit full screen' : 'Enter full screen';
         button.setAttribute('aria-label', button.title);
         button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        button.classList.toggle('active', active);
         button.querySelector('i').className = active ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
         $('#acceptFullscreen').disabled = fullscreenBusy;
         $('#declineFullscreen').disabled = fullscreenBusy;
