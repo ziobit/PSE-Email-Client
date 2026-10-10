@@ -7,6 +7,9 @@ Release notes are shown when checking for an update and after an update is insta
 - On phones, search now occupies its own full-width header row. The icon, text field, saved-search and clear buttons stay together without wrapping.
 - Ultra Compact mode no longer reserves desktop logo space on mobile. The message area adjusts to the header height, keeping the footer navigation on screen.
 
+### Merged changes
+- 2026-10-10: [#6](https://github.com/ziobit/PSE-Email-Client/pull/6) — Release 2\.18\.6: fix mobile search layout. Commit [5aa5c86](https://github.com/ziobit/PSE-Email-Client/commit/5aa5c8657df4b3cc9fd68377ba96ea6230f2f967). <!-- pse-pr:ziobit/PSE-Email-Client#6 -->
+
 ## 2.18.5 (2026-10-10)
 
 - Portable `.pse` email exports and downloaded compose drafts now let you choose the folder and file name, just like saving attachments, when the browser supports the native Save As dialog.
