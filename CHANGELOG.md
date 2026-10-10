@@ -2,6 +2,12 @@
 
 Release notes are shown when checking for an update and after an update is installed. Dates in automatically recorded merge entries use UTC. The repository keeps the complete history; the single PHP file bundles the latest notes for offline use.
 
+## 2.18.5 (2026-10-10)
+
+- Portable `.pse` email exports and downloaded compose drafts now let you choose the folder and file name, just like saving attachments, when the browser supports the native Save As dialog.
+- Cancelling Save As stops before attachments are prepared. Browsers without the native dialog offer a file-name prompt and keep using normal downloads.
+- Updates now run automated checks for mailbox synchronization, caching, deletions, cleanup, file opening and exports before merging changes.
+
 ## 2.18.4 (2026-10-07)
 
 - Queuing a deletion immediately removes its rows from the visible folder, including after Gmail history has invalidated the page cache. Read/unread, restore and permanent-delete actions also update visible rows without relying on a cached page.
