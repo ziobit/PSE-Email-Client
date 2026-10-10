@@ -8,6 +8,9 @@ Release notes are shown when checking for an update and after an update is insta
 - Cancelling Save As stops before attachments are prepared. Browsers without the native dialog offer a file-name prompt and keep using normal downloads.
 - Updates now run automated checks for mailbox synchronization, caching, deletions, cleanup, file opening and exports before merging changes.
 
+### Merged changes
+- 2026-10-10: [#5](https://github.com/ziobit/PSE-Email-Client/pull/5) — Release 2\.18\.5: Save As for PSE files and regression CI. Commit [8b7d197](https://github.com/ziobit/PSE-Email-Client/commit/8b7d19763a012c8a5acd7f779e9c75e1ab59fce5). <!-- pse-pr:ziobit/PSE-Email-Client#5 -->
+
 ## 2.18.4 (2026-10-07)
 
 - Queuing a deletion immediately removes its rows from the visible folder, including after Gmail history has invalidated the page cache. Read/unread, restore and permanent-delete actions also update visible rows without relying on a cached page.
