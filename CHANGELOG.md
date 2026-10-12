@@ -2,6 +2,13 @@
 
 Release notes are shown when checking for an update and after an update is installed. Dates in automatically recorded merge entries use UTC. The repository keeps the complete history; the single PHP file bundles the latest notes for offline use.
 
+## 2.18.11 (2026-10-12)
+
+- Each account under Space used has a Clean button. Account cleanup previews email larger than 1, 5, 10, 20 or 50 MB, or a custom size, across all folders including Spam and Trash.
+- Any date is the default. Choose older than 1, 3 or 6 months, or 1, 2, 3 or 5 years, or an inclusive custom date range with either endpoint optional. Dates follow the selected account timezone.
+- Select individual messages, the current preview page or all matching messages. Deletion always requires `YES DELETE SELECTED`; messages already in Trash, or an IMAP account without Trash, are clearly marked for permanent deletion. Other messages move to Trash, which does not immediately free mailbox quota.
+- Search and deletion run in cancellable batches. Server snapshots keep accounts, message identifiers and the confirmed selection isolated; retries resume that same selection. Deployment still requires only `index.php`.
+
 ## 2.18.10 (2026-10-10)
 
 - On mobile, the top-left application icon opens a native account selector when more than one email account is configured. It starts on the current account and uses the existing account switch-and-reload behavior.
