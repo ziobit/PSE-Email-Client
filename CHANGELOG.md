@@ -9,6 +9,9 @@ Release notes are shown when checking for an update and after an update is insta
 - Select individual messages, the current preview page or all matching messages. Deletion always requires `YES DELETE SELECTED`; messages already in Trash, or an IMAP account without Trash, are clearly marked for permanent deletion. Other messages move to Trash, which does not immediately free mailbox quota.
 - Search and deletion run in cancellable batches. Server snapshots keep accounts, message identifiers and the confirmed selection isolated; retries resume that same selection. Deployment still requires only `index.php`.
 
+### Merged changes
+- 2026-10-12: [#11](https://github.com/ziobit/PSE-Email-Client/pull/11) — Release 2\.18\.11: clean accounts by email size and date. Commit [db07c4b](https://github.com/ziobit/PSE-Email-Client/commit/db07c4ba368ae2f4d38a5b0627e529e039e1a5b7). <!-- pse-pr:ziobit/PSE-Email-Client#11 -->
+
 ## 2.18.10 (2026-10-10)
 
 - On mobile, the top-left application icon opens a native account selector when more than one email account is configured. It starts on the current account and uses the existing account switch-and-reload behavior.
