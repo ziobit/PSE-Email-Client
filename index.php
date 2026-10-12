@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 const PSE_NAME = 'PSE Email';
-const PSE_VERSION = '2.18.10';
+const PSE_VERSION = '2.18.11';
 const PSE_DATA_DIR = __DIR__ . '/pse_data';
 const PSE_SETTINGS_FILE = PSE_DATA_DIR . '/settings.json';
 const PSE_CONTACTS_FILE = PSE_DATA_DIR . '/contacts.json';
@@ -7296,6 +7296,16 @@ function pseFolderCleanupImapBatch(array $settings, array $snapshot, array $uids
     foreach ($uids as $uid) {
       if (@imap_msgno($imap, (int)$uid) > 0) $existing[] = (string)$uid;
     }
+    if ($existing && isset($snapshot['filters'])) {
+      $overview = @imap_fetch_overview($imap, implode(',', $existing), FT_UID);
+      if (!is_array($overview)) throw new RuntimeException('Unable to verify message sizes and dates. Retry the cleanup.');
+      $matching = [];
+      foreach ($overview as $message) {
+        $timestamp = isset($message->udate) ? (int)$message->udate : (int)(strtotime((string)($message->date ?? '')) ?: 0);
+        if (pseAccountCleanupMatches($snapshot['filters'], (int)($message->size ?? 0), $timestamp)) $matching[(string)$message->uid] = true;
+      }
+      $existing = array_values(array_filter($existing, function (string $uid) use ($matching): bool { return isset($matching[$uid]); }));
+    }
     if (!$existing) return [];
     $existingMap = array_fill_keys($existing, true);
     $deleted = pseFolderCleanupImapDeleted($imap, $existingMap);
@@ -7392,6 +7402,247 @@ function pseFolderCleanupExecute(array $settings, string $token, string $confirm
     @flock($handle, LOCK_UN);
     fclose($handle);
   }
+}
+
+function pseAccountCleanupFilters(array $settings, array $data, ?DateTimeImmutable $now = null): array
+{
+  $mb = $data['minMB'] ?? 5;
+  if (!is_numeric($mb) || !is_finite((float)$mb) || (float)$mb <= 0 || (float)$mb > 102400) {
+    throw new RuntimeException('Enter a size greater than zero and no more than 102400 MB.');
+  }
+  $timezone = pseSettingsTimezone($settings);
+  $today = ($now ?? new DateTimeImmutable('now', $timezone))->setTimezone($timezone)->setTime(0, 0);
+  $mode = (string)($data['mode'] ?? 'any');
+  $months = ['month' => 1, 'three_months' => 3, 'six_months' => 6, 'year' => 12, 'two_years' => 24, 'three_years' => 36, 'five_years' => 60];
+  $from = '';
+  $until = '';
+  $after = 0;
+  $before = 0;
+  if (isset($months[$mode])) {
+    $target = $today->modify('first day of this month')->modify('-' . $months[$mode] . ' months');
+    $cutoff = $target->setDate((int)$target->format('Y'), (int)$target->format('m'), min((int)$today->format('d'), (int)$target->format('t')));
+    $until = $cutoff->format('Y-m-d');
+    $before = $cutoff->getTimestamp();
+  } elseif ($mode === 'custom') {
+    foreach (['from', 'until'] as $key) {
+      $raw = trim((string)($data[$key] ?? ''));
+      $date = pseNormalizeCalendarDate($raw);
+      if ($raw !== '' && ($date === '' || $date < '1970-01-01' || $date > $today->format('Y-m-d'))) {
+        throw new RuntimeException('Choose dates between 1970-01-01 and today.');
+      }
+      if ($key === 'from') $from = $date;
+      else $until = $date;
+    }
+    if (($from === '' && $until === '') || ($from !== '' && $until !== '' && $from > $until)) {
+      throw new RuntimeException('Choose a valid custom date range.');
+    }
+    if ($from !== '') $after = (new DateTimeImmutable($from . ' 00:00:00', $timezone))->getTimestamp();
+    if ($until !== '') $before = (new DateTimeImmutable($until . ' 00:00:00', $timezone))->modify('+1 day')->getTimestamp();
+  } elseif ($mode !== 'any') {
+    throw new RuntimeException('Invalid account cleanup date range.');
+  }
+  return ['minMB' => (float)$mb, 'minBytes' => (int)floor((float)$mb * 1048576), 'mode' => $mode, 'from' => $from, 'until' => $until, 'after' => $after, 'before' => $before, 'timeZone' => $timezone->getName()];
+}
+
+function pseAccountCleanupMatches(array $filters, int $size, int $timestamp): bool
+{
+  return $size > (int)$filters['minBytes']
+    && ((int)$filters['after'] === 0 || $timestamp >= (int)$filters['after'])
+    && ((int)$filters['before'] === 0 || ($timestamp > 0 && $timestamp < (int)$filters['before']));
+}
+
+function pseAccountCleanupPublic(array $snapshot, string $token, int $page = 1): array
+{
+  $rows = (array)$snapshot['rows'];
+  $page = max(1, min($page, max(1, (int)ceil(count($rows) / 50))));
+  $result = [];
+  foreach (array_slice($rows, ($page - 1) * 50, 50, true) as $index => $row) {
+    $result[] = ['index' => $index, 'folder' => $row['folderName'], 'subject' => $row['subject'], 'from' => $row['from'], 'date' => $row['date'], 'size' => $row['size'], 'permanent' => $row['permanent']];
+  }
+  $selection = $snapshot['selection'] ?? null;
+  $processed = (int)($snapshot['processed'] ?? 0);
+  return ['token' => $token, 'accountId' => $snapshot['accountId'], 'filters' => $snapshot['filters'], 'scanComplete' => !empty($snapshot['scanComplete']), 'scanned' => (int)$snapshot['scanned'], 'count' => count($rows), 'bytes' => (int)$snapshot['bytes'], 'permanentCount' => (int)$snapshot['permanentCount'], 'page' => $page, 'pages' => max(1, (int)ceil(count($rows) / 50)), 'rows' => $result, 'selectionLocked' => is_array($selection), 'selectedCount' => is_array($selection) ? count($selection) : 0, 'processed' => $processed, 'affected' => (int)($snapshot['affected'] ?? 0), 'skipped' => (int)($snapshot['skipped'] ?? 0), 'complete' => is_array($selection) && $processed >= count($selection)];
+}
+
+function pseAccountCleanupStart(array $settings, array $data): array
+{
+  $filters = pseAccountCleanupFilters($settings, $data);
+  $folders = pseIsGmailAccount($settings) ? [] : pseFolders($settings);
+  $trash = '';
+  foreach ($folders as $folder) {
+    if (($folder['special'] ?? '') === 'trash') { $trash = (string)$folder['id']; break; }
+  }
+  $snapshot = ['kind' => 'account', 'owner' => pseFolderCleanupOwner($settings), 'account' => pseFolderCleanupAccount($settings), 'accountId' => (string)$settings['account_id'], 'filters' => $filters, 'folders' => $folders, 'trash' => $trash, 'folderIndex' => 0, 'pending' => null, 'offset' => 0, 'pageToken' => '', 'visited' => [], 'seen' => [], 'rows' => [], 'scanned' => 0, 'bytes' => 0, 'permanentCount' => 0, 'scanComplete' => false, 'expires' => time() + 3600];
+  $token = bin2hex(random_bytes(24));
+  pseWriteJson(pseFolderCleanupDirectory() . '/' . $token . '.json', $snapshot);
+  return pseAccountCleanupPublic($snapshot, $token);
+}
+
+function pseAccountCleanupTransaction(array $settings, string $token, callable $callback): array
+{
+  if (!preg_match('/^[a-f0-9]{48}$/', $token)) throw new RuntimeException('Invalid account cleanup token. Search again.');
+  $file = pseFolderCleanupDirectory() . '/' . $token . '.json';
+  if (!is_file($file)) throw new RuntimeException('The cleanup preview expired. Search again.');
+  $handle = @fopen($file . '.lock', 'c+');
+  if (!$handle) throw new RuntimeException('Unable to lock the cleanup preview.');
+  try {
+    if (!@flock($handle, LOCK_EX)) throw new RuntimeException('Unable to lock the cleanup preview.');
+    @chmod($file . '.lock', 0640);
+    $snapshot = pseReadJson($file, []);
+    if (($snapshot['kind'] ?? '') !== 'account' || (int)($snapshot['expires'] ?? 0) < time()) throw new RuntimeException('The cleanup preview expired. Search again.');
+    if (!hash_equals((string)$snapshot['owner'], pseFolderCleanupOwner($settings)) || !hash_equals((string)$snapshot['account'], pseFolderCleanupAccount($settings))) throw new RuntimeException('The login or email account changed. Search again.');
+    $result = $callback($snapshot);
+    $snapshot['expires'] = time() + 3600;
+    pseWriteJson($file, $snapshot);
+    return pseAccountCleanupPublic($snapshot, $token, (int)($result['page'] ?? 1));
+  } finally {
+    @flock($handle, LOCK_UN);
+    fclose($handle);
+  }
+}
+
+function pseAccountCleanupAddRow(array &$snapshot, array $row): void
+{
+  if (isset($snapshot['seen'][$row['key']])) return;
+  if (count($snapshot['rows']) >= 250000) throw new RuntimeException('More than 250,000 messages match. Choose stricter filters.');
+  $snapshot['seen'][$row['key']] = true;
+  $snapshot['rows'][] = $row;
+  $snapshot['bytes'] += $row['size'];
+  if ($row['permanent']) $snapshot['permanentCount']++;
+}
+
+function pseAccountCleanupScan(array $settings, string $token): array
+{
+  return pseAccountCleanupTransaction($settings, $token, function (array &$snapshot) use ($settings): array {
+    if ($snapshot['scanComplete']) return [];
+    $filters = $snapshot['filters'];
+    if (pseIsGmailAccount($settings)) {
+      $q = 'larger:' . $filters['minBytes'];
+      if ($filters['after'] > 0) $q .= ' after:' . ($filters['after'] - 1);
+      if ($filters['before'] > 0) $q .= ' before:' . $filters['before'];
+      $query = ['q' => $q, 'includeSpamTrash' => true, 'maxResults' => 25];
+      if ($snapshot['pageToken'] !== '') $query['pageToken'] = $snapshot['pageToken'];
+      $page = pseGoogleApi($settings, 'GET', 'messages', $query);
+      foreach ((array)($page['messages'] ?? []) as $item) {
+        $id = (string)($item['id'] ?? '');
+        if (!preg_match('/^[a-zA-Z0-9_-]+$/', $id)) throw new RuntimeException('Invalid Gmail message identifier. Search again.');
+        try {
+          $message = pseGoogleApi($settings, 'GET', 'messages/' . rawurlencode($id), ['format' => 'metadata', 'metadataHeaders' => ['Subject', 'From']]);
+        } catch (RuntimeException $error) {
+          if (strpos($error->getMessage(), '(HTTP 404)') !== false) continue;
+          throw $error;
+        }
+        $snapshot['scanned']++;
+        $size = (int)($message['sizeEstimate'] ?? 0);
+        $timestamp = (int)floor((int)($message['internalDate'] ?? 0) / 1000);
+        if (!pseAccountCleanupMatches($filters, $size, $timestamp)) continue;
+        $headers = pseGmailHeaders((array)($message['payload'] ?? []));
+        $labels = (array)($message['labelIds'] ?? []);
+        $permanent = in_array('TRASH', $labels, true);
+        $folder = $permanent ? 'TRASH' : (in_array('SPAM', $labels, true) ? 'SPAM' : 'ALL');
+        pseAccountCleanupAddRow($snapshot, ['key' => $id, 'uid' => $id, 'folder' => $folder, 'folderName' => $permanent ? 'Trash' : ($folder === 'SPAM' ? 'Spam' : 'Mailbox'), 'permanent' => $permanent, 'size' => $size, 'timestamp' => $timestamp, 'date' => pseFormatDate($timestamp, $settings), 'subject' => pseMime((string)($headers['subject'] ?? '(No subject)')), 'from' => pseMime((string)($headers['from'] ?? ''))]);
+      }
+      $next = (string)($page['nextPageToken'] ?? '');
+      if ($next !== '' && isset($snapshot['visited'][$next])) throw new RuntimeException('Gmail repeated a search page. Search again.');
+      if ($next !== '') $snapshot['visited'][$next] = true;
+      $snapshot['pageToken'] = $next;
+      $snapshot['scanComplete'] = $next === '';
+    } else {
+      if (!isset($snapshot['folders'][$snapshot['folderIndex']])) { $snapshot['scanComplete'] = true; return []; }
+      $folder = $snapshot['folders'][$snapshot['folderIndex']];
+      $imap = pseOpenImap($settings, (string)$folder['id'], true);
+      try {
+        $validity = pseFolderCleanupImapValidity($imap, $settings, (string)$folder['id']);
+        if ($snapshot['pending'] === null) {
+          @imap_errors();
+          $uids = @imap_search($imap, 'LARGER ' . $filters['minBytes'], SE_UID);
+          if ($uids === false && @imap_errors()) throw new RuntimeException('Unable to search all folders. Search again.');
+          $snapshot['pending'] = is_array($uids) ? array_values($uids) : [];
+          $snapshot['offset'] = 0;
+          $snapshot['uidValidity'] = $validity;
+        }
+        if ($snapshot['uidValidity'] !== $validity) throw new RuntimeException('The folder message identifiers changed. Search again.');
+        $batch = array_slice($snapshot['pending'], $snapshot['offset'], 200);
+        if ($batch) {
+          $overview = @imap_fetch_overview($imap, implode(',', array_map('intval', $batch)), FT_UID);
+          if (!is_array($overview)) throw new RuntimeException('Unable to read message sizes and dates. Search again.');
+          foreach ($overview as $message) {
+            $timestamp = isset($message->udate) ? (int)$message->udate : (int)(strtotime((string)($message->date ?? '')) ?: 0);
+            $size = (int)($message->size ?? 0);
+            $uid = (string)($message->uid ?? '');
+            if ((int)$uid <= 0 || !pseAccountCleanupMatches($filters, $size, $timestamp)) continue;
+            $permanent = ($folder['special'] ?? '') === 'trash' || $snapshot['trash'] === '';
+            pseAccountCleanupAddRow($snapshot, ['key' => $folder['id'] . ':' . $uid, 'uid' => $uid, 'uidValidity' => $validity, 'folder' => (string)$folder['id'], 'folderName' => (string)$folder['name'], 'special' => (string)$folder['special'], 'trash' => $snapshot['trash'], 'permanent' => $permanent, 'size' => $size, 'timestamp' => $timestamp, 'date' => pseFormatDate($timestamp, $settings), 'subject' => pseMime((string)($message->subject ?? '(No subject)')), 'from' => pseMime((string)($message->from ?? ''))]);
+          }
+          $snapshot['scanned'] += count($batch);
+        }
+        if (pseFolderCleanupImapValidity($imap, $settings, (string)$folder['id']) !== $validity) throw new RuntimeException('The folder message identifiers changed. Search again.');
+        $snapshot['offset'] += count($batch);
+        if ($snapshot['offset'] >= count($snapshot['pending'])) {
+          $snapshot['pending'] = null;
+          $snapshot['folderIndex']++;
+          $snapshot['scanComplete'] = $snapshot['folderIndex'] >= count($snapshot['folders']);
+        }
+      } finally { imap_close($imap); }
+    }
+    return [];
+  });
+}
+
+function pseAccountCleanupExecute(array $settings, string $token, array $data): array
+{
+  if (($data['confirmation'] ?? '') !== 'YES DELETE SELECTED') throw new RuntimeException('Type YES DELETE SELECTED exactly to confirm deletion.');
+  return pseAccountCleanupTransaction($settings, $token, function (array &$snapshot) use ($settings, $data, $token): array {
+    if (!$snapshot['scanComplete']) throw new RuntimeException('Finish the search before deleting messages.');
+    if (!isset($snapshot['selection'])) {
+      $indices = !empty($data['all']) ? array_keys($snapshot['rows']) : ($data['indices'] ?? []);
+      if (!is_array($indices)) throw new RuntimeException('Invalid cleanup selection.');
+      $selection = [];
+      foreach ($indices as $index) {
+        if (!is_int($index) || !isset($snapshot['rows'][$index])) throw new RuntimeException('Invalid cleanup selection. Search again.');
+        $selection[$index] = $index;
+      }
+      if (!$selection) throw new RuntimeException('Select at least one message.');
+      $snapshot['selection'] = array_values($selection);
+      $snapshot['processed'] = $snapshot['affected'] = $snapshot['skipped'] = 0;
+      // Persist the immutable selection before the first mutation, including when
+      // the provider succeeds but the response is lost or the batch later fails.
+      pseWriteJson(pseFolderCleanupDirectory() . '/' . $token . '.json', $snapshot);
+    }
+    $indices = array_slice($snapshot['selection'], $snapshot['processed'], pseIsGmailAccount($settings) ? 25 : 100);
+    if (!$indices) return [];
+    $first = $snapshot['rows'][$indices[0]];
+    $batch = [];
+    foreach ($indices as $index) {
+      $row = $snapshot['rows'][$index];
+      if ($row['folder'] !== $first['folder']) break;
+      $batch[] = $row['uid'];
+    }
+    $affected = [];
+    if (pseIsGmailAccount($settings)) {
+      foreach ($batch as $id) {
+        try { $message = pseGoogleApi($settings, 'GET', 'messages/' . rawurlencode($id), ['format' => 'minimal']); }
+        catch (RuntimeException $error) { if (strpos($error->getMessage(), '(HTTP 404)') !== false) continue; throw $error; }
+        $inTrash = in_array('TRASH', (array)($message['labelIds'] ?? []), true);
+        if ($inTrash !== (bool)$first['permanent']) continue;
+        if (!pseAccountCleanupMatches($snapshot['filters'], (int)($message['sizeEstimate'] ?? 0), (int)floor((int)($message['internalDate'] ?? 0) / 1000))) continue;
+        $affected[] = $id;
+      }
+      if ($affected) pseGmailBulkMessages($settings, $affected, $first['permanent'] ? 'delete_forever' : 'delete', 'YES I AM SURE');
+    } else {
+      $folders = pseFolderCleanupFolders($settings, $first['folder']);
+      if ($folders['special'] !== $first['special'] || $folders['trash'] !== $first['trash'] || $folders['permanent'] !== $first['permanent']) throw new RuntimeException('The folder destination changed. Search again.');
+      $affected = pseFolderCleanupImapBatch($settings, $first + ['filters' => $snapshot['filters']], $batch);
+    }
+    if ($affected) {
+      pseMailCacheAfterDirectMessageOperation($settings, $first['folder'], $affected, $first['permanent'] ? 'delete_forever' : 'delete', $first['permanent'] ? '' : (pseIsGmailAccount($settings) ? 'TRASH' : $first['trash']));
+      pseMailCacheClearLists($settings);
+    }
+    $snapshot['processed'] += count($batch);
+    $snapshot['affected'] += count($affected);
+    $snapshot['skipped'] += count($batch) - count($affected);
+    return [];
+  });
 }
 
 function pseActionQueueTransaction(callable $callback)
@@ -10490,7 +10741,7 @@ function pseApplyClientAppearanceSettings(array $settings, $raw): array
 /* PSE_EMBEDDED_CHANGELOG_START */
 function pseBundledChangelogText(): string
 {
-  return base64_decode('IyBQU0UgRW1haWwgQ2xpZW50IGNoYW5nZWxvZwoKUmVsZWFzZSBub3RlcyBhcmUgc2hvd24gd2hlbiBjaGVja2luZyBmb3IgYW4gdXBkYXRlIGFuZCBhZnRlciBhbiB1cGRhdGUgaXMgaW5zdGFsbGVkLiBEYXRlcyBpbiBhdXRvbWF0aWNhbGx5IHJlY29yZGVkIG1lcmdlIGVudHJpZXMgdXNlIFVUQy4gVGhlIHJlcG9zaXRvcnkga2VlcHMgdGhlIGNvbXBsZXRlIGhpc3Rvcnk7IHRoZSBzaW5nbGUgUEhQIGZpbGUgYnVuZGxlcyB0aGUgbGF0ZXN0IG5vdGVzIGZvciBvZmZsaW5lIHVzZS4KCiMjIDIuMTguMTAgKDIwMjYtMTAtMTApCgotIE9uIG1vYmlsZSwgdGhlIHRvcC1sZWZ0IGFwcGxpY2F0aW9uIGljb24gb3BlbnMgYSBuYXRpdmUgYWNjb3VudCBzZWxlY3RvciB3aGVuIG1vcmUgdGhhbiBvbmUgZW1haWwgYWNjb3VudCBpcyBjb25maWd1cmVkLiBJdCBzdGFydHMgb24gdGhlIGN1cnJlbnQgYWNjb3VudCBhbmQgdXNlcyB0aGUgZXhpc3RpbmcgYWNjb3VudCBzd2l0Y2gtYW5kLXJlbG9hZCBiZWhhdmlvci4KLSBUaGUgaWNvbiBzdGF5cyBkZWNvcmF0aXZlIHdpdGggYSBzaW5nbGUgYWNjb3VudCwgYW5kIHRoZSBkZXNrdG9wIGFjY291bnQgYmFkZ2UgbWVudSBzdGF5cyBhdmFpbGFibGUuIFRoZSBtb2JpbGUgcGlja2VyIHByZXZlbnRzIHJlcGVhdGVkIHN3aXRjaGVzIHdoaWxlIGEgcmVxdWVzdCBpcyBwZW5kaW5nIGFuZCByZXN0b3JlcyB0aGUgY3VycmVudCBzZWxlY3Rpb24gYWZ0ZXIgYSBmYWlsdXJlLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0xMDogWyMxMF0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvMTApIOKAlCBSZWxlYXNlIDJcLjE4XC4xMDogY2hvb3NlIGFjY291bnRzIGZyb20gdGhlIG1vYmlsZSBhcHAgaWNvbi4gQ29tbWl0IFs2OGY1YWUyXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0LzY4ZjVhZTI2YTU5MmYxMTcyNWFiNjhmODIxOGZjNzA2NjlmZjZiM2EpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMxMCAtLT4KCiMjIDIuMTguOSAoMjAyNi0xMC0xMCkKCi0gVG9nZ2xlIGJ1dHRvbnMgdmlzaWJseSByZXR1cm4gdG8gdW5zZWxlY3RlZCB3aGVuIHRhcHBlZCBhZ2FpbiwgaW5jbHVkaW5nIG9uIHRvdWNoIGJyb3dzZXJzIHRoYXQgcmV0YWluIGhvdmVyIHN0eWxpbmcuIEZ1bGwgc2NyZWVuLCBtdWx0aXBsZSBzZWxlY3Rpb24sIGZpbHRlcnMsIGNhbGVuZGFyLCBsYXlvdXQgYW5kIGNvbXBvc2UgbWF4aW1pemUgYnV0dG9ucyBrZWVwIHRoZWlyIHZpc3VhbCBhbmQgYWNjZXNzaWJsZSBzdGF0ZSBpbiBzeW5jLgotIFRoZSBmb290ZXIgdW5yZWFkIGZpbHRlciBhbmQgY3VycmVudC1wYWdlL2FsbC1wYWdlcyBzZWxlY3Rpb24gY29udHJvbHMgbm93IHRvZ2dsZSBvZmYgb24gYSBzZWNvbmQgdGFwLiBGaWx0ZXIgY2hhbmdlcyByZXNldCBzZWxlY3Rpb24gY29udHJvbHMgaW1tZWRpYXRlbHksIGFuZCBvdXRkYXRlZCBJRCByZXNwb25zZXMgY2Fubm90IHJlYWN0aXZhdGUgY2xlYXJlZCBzZWxlY3Rpb25zIG9yIHNlbGVjdCBtZXNzYWdlcyBpbiBhbm90aGVyIHZpZXcuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTEwOiBbIzldKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzkpIOKAlCBSZWxlYXNlIDJcLjE4XC45OiB0b2dnbGUgYnV0dG9ucyB0dXJuIG9mZiBhbmQgcmVzZXQgdGhlaXIgc2VsZWN0ZWQgYXBwZWFyYW5jZS4gQ29tbWl0IFszYjAxNDg5XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0LzNiMDE0ODlkYmQ4YzEwYzM4OTM2Y2JmNTJkNGI2YTdiZDRmNDJiMzcpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCM5IC0tPgoKIyMgMi4xOC44ICgyMDI2LTEwLTEwKQoKLSBNb2JpbGUgc2VhcmNoIGZpdHMgaW4gdGhlIHRvcCBoZWFkZXIgcm93IGJlc2lkZSB0aGUgYXZhdGFyIGFuZCBhY3Rpb24gYnV0dG9ucy4gVGhlIGZpZWxkIGNhbiBzaHJpbmsgd2l0aCBhIGNsaXBwZWQgcGxhY2Vob2xkZXIsIGFuZCBlZGl0aW5nIGZyZWVzIHRoZSBzZWFyY2ggaWNvbidzIHNwYWNlIGZvciB0ZXh0LgotIFBvcnRhYmxlIGVtYWlsICguUFNFKSBpcyB0aGUgZmlyc3Qgb3B0aW9uIGluIHRoZSBtZXNzYWdlIEV4cG9ydCBtZW51LCBhaGVhZCBvZiBPcmlnaW5hbCBlbWFpbCAoLmVtbCkuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTEwOiBbIzhdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzgpIOKAlCBSZWxlYXNlIDJcLjE4XC44OiBmaXQgbW9iaWxlIHNlYXJjaCBhdCB0aGUgdG9wIGFuZCBwdXQgUFNFIGV4cG9ydCBmaXJzdC4gQ29tbWl0IFtkZDAzNzI2XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0L2RkMDM3MjYzYTZmZGIwMGZlNTI1ZWQzOGVmN2JjMTgwOTdmNmQ2YTgpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCM4IC0tPgoKIyMgMi4xOC43ICgyMDI2LTEwLTEwKQoKLSBTZXR0aW5ncyDihpIgQXBwZWFyYW5jZSBub3cgaW5jbHVkZXMgYSBmdWxsIHNjcmVlbiBwcmVmZXJlbmNlIGFuZCBlbnRlci9leGl0IGNvbnRyb2xzLCByZW1lbWJlcmVkIGltbWVkaWF0ZWx5IGluIHRoZSBjdXJyZW50IGJyb3dzZXIuCi0gU3VwcG9ydGVkIG1vYmlsZSBicm93c2VycyBhc2sgb25jZSB3aGV0aGVyIHRvIHVzZSBmdWxsIHNjcmVlbi4gQm90aCBhbnN3ZXJzIGFyZSByZW1lbWJlcmVkOyByZW9wZW5pbmcgd2l0aCBmdWxsIHNjcmVlbiBwcmVmZXJyZWQgc2hvd3MgYSBoZWFkZXIgYnV0dG9uIHRvIHJlc3VtZSB3aXRoIHRoZSB0YXAgcmVxdWlyZWQgYnkgdGhlIGJyb3dzZXIuCi0gVGhlIGZpcnN0IG1vYmlsZSBwcm9tcHQgd2FpdHMgZm9yIGxvY2FsLWZpbGUgb3BlbmluZywgdXBkYXRlIG5vdGljZXMgYW5kIG90aGVyIGRpYWxvZ3MuIEJyb3dzZXIgZXhpdHMgYW5kIGZhaWxlZCByZXF1ZXN0cyBrZWVwIHRoZSBzYXZlZCBwcmVmZXJlbmNlIGF2YWlsYWJsZSBmb3IgYSBsYXRlciByZXRyeS4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMTA6IFsjN10oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvNykg4oCUIFJlbGVhc2UgMlwuMThcLjc6IHJlbWVtYmVyZWQgZnVsbCBzY3JlZW4gYW5kIGZpcnN0IG1vYmlsZSBwcm9tcHQuIENvbW1pdCBbMTIxMDIzN10oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC8xMjEwMjM3OTNkNmJkYTAxZDQwZTk1MzI5MjcyY2UxZDdmNGIwMzUzKS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjNyAtLT4KCiMjIDIuMTguNiAoMjAyNi0xMC0xMCkKCi0gT24gcGhvbmVzLCBzZWFyY2ggbm93IG9jY3VwaWVzIGl0cyBvd24gZnVsbC13aWR0aCBoZWFkZXIgcm93LiBUaGUgaWNvbiwgdGV4dCBmaWVsZCwgc2F2ZWQtc2VhcmNoIGFuZCBjbGVhciBidXR0b25zIHN0YXkgdG9nZXRoZXIgd2l0aG91dCB3cmFwcGluZy4KLSBVbHRyYSBDb21wYWN0IG1vZGUgbm8gbG9uZ2VyIHJlc2VydmVzIGRlc2t0b3AgbG9nbyBzcGFjZSBvbiBtb2JpbGUuIFRoZSBtZXNzYWdlIGFyZWEgYWRqdXN0cyB0byB0aGUgaGVhZGVyIGhlaWdodCwga2VlcGluZyB0aGUgZm9vdGVyIG5hdmlnYXRpb24gb24gc2NyZWVuLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0xMDogWyM2XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC82KSDigJQgUmVsZWFzZSAyXC4xOFwuNjogZml4IG1vYmlsZSBzZWFyY2ggbGF5b3V0LiBDb21taXQgWzVhYTVjODZdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvNWFhNWM4NjU3ZGY0YjNjYzlmZDY4Mzc3YmE5NmVhNjIzMGYyZjk2NykuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzYgLS0+CgojIyAyLjE4LjUgKDIwMjYtMTAtMTApCgotIFBvcnRhYmxlIGAucHNlYCBlbWFpbCBleHBvcnRzIGFuZCBkb3dubG9hZGVkIGNvbXBvc2UgZHJhZnRzIG5vdyBsZXQgeW91IGNob29zZSB0aGUgZm9sZGVyIGFuZCBmaWxlIG5hbWUsIGp1c3QgbGlrZSBzYXZpbmcgYXR0YWNobWVudHMsIHdoZW4gdGhlIGJyb3dzZXIgc3VwcG9ydHMgdGhlIG5hdGl2ZSBTYXZlIEFzIGRpYWxvZy4KLSBDYW5jZWxsaW5nIFNhdmUgQXMgc3RvcHMgYmVmb3JlIGF0dGFjaG1lbnRzIGFyZSBwcmVwYXJlZC4gQnJvd3NlcnMgd2l0aG91dCB0aGUgbmF0aXZlIGRpYWxvZyBvZmZlciBhIGZpbGUtbmFtZSBwcm9tcHQgYW5kIGtlZXAgdXNpbmcgbm9ybWFsIGRvd25sb2Fkcy4KLSBVcGRhdGVzIG5vdyBydW4gYXV0b21hdGVkIGNoZWNrcyBmb3IgbWFpbGJveCBzeW5jaHJvbml6YXRpb24sIGNhY2hpbmcsIGRlbGV0aW9ucywgY2xlYW51cCwgZmlsZSBvcGVuaW5nIGFuZCBleHBvcnRzIGJlZm9yZSBtZXJnaW5nIGNoYW5nZXMuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTEwOiBbIzVdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzUpIOKAlCBSZWxlYXNlIDJcLjE4XC41OiBTYXZlIEFzIGZvciBQU0UgZmlsZXMgYW5kIHJlZ3Jlc3Npb24gQ0kuIENvbW1pdCBbOGI3ZDE5N10oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC84YjdkMTk3NjNhMDEyYzhhNWFjZDdmNzc5ZTljNzVlMWFiNTlmY2U1KS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjNSAtLT4KCiMjIDIuMTguNCAoMjAyNi0xMC0wNykKCi0gUXVldWluZyBhIGRlbGV0aW9uIGltbWVkaWF0ZWx5IHJlbW92ZXMgaXRzIHJvd3MgZnJvbSB0aGUgdmlzaWJsZSBmb2xkZXIsIGluY2x1ZGluZyBhZnRlciBHbWFpbCBoaXN0b3J5IGhhcyBpbnZhbGlkYXRlZCB0aGUgcGFnZSBjYWNoZS4gUmVhZC91bnJlYWQsIHJlc3RvcmUgYW5kIHBlcm1hbmVudC1kZWxldGUgYWN0aW9ucyBhbHNvIHVwZGF0ZSB2aXNpYmxlIHJvd3Mgd2l0aG91dCByZWx5aW5nIG9uIGEgY2FjaGVkIHBhZ2UuCi0gUmVmcmVzaGVkIGxpc3RzIGhpZGUgcGVuZGluZyBxdWV1ZWQgZGVsZXRpb25zIHVudGlsIHRoZXkgYXJlIHByb2Nlc3NlZCBvciB1bmRvbmUuIE9wdGltaXN0aWMgY2FjaGUgdXBkYXRlcyBwcmVzZXJ2ZSBHbWFpbCByZXZpc2lvbiBhbmQgdmlldy1maWx0ZXIgbWV0YWRhdGEuCi0gQmFja2dyb3VuZCBsaXN0IHJlc3BvbnNlcyBzdGFydGVkIGJlZm9yZSBhIG1haWxib3ggYWN0aW9uIGNhbm5vdCByZXBsYWNlIHRoZSB1cGRhdGVkIGxpc3QuIE11bHRpLWJhdGNoIGRlbGV0aW9uIGtlZXBzIHVzaW5nIGl0cyBvcmlnaW5hbCBmb2xkZXIgd2hlbiB0aGUgdXNlciBuYXZpZ2F0ZXMgZWxzZXdoZXJlLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNzogWyM0XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC80KSDigJQgUmVsZWFzZSAyXC4xOFwuNDogcmVtb3ZlIHF1ZXVlZCBkZWxldGlvbnMgZnJvbSBtZXNzYWdlIGxpc3RzIGltbWVkaWF0ZWx5LiBDb21taXQgWzMyN2FiMDVdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvMzI3YWIwNTlhY2Y2ZjRmM2Q3NGY4NjI3OGE0Y2FmZDFkMmM2NjhlYykuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzQgLS0+CgojIyAyLjE4LjMgKDIwMjYtMTAtMDYpCgotIEdtYWlsIGFjY291bnRzIG5vdyBzYXZlIGEgcGVyLWFjY291bnQgYGhpc3RvcnlJZGAgY2hlY2twb2ludCBhbmQgcmVxdWVzdCBtYWlsYm94IGNoYW5nZXMgc2luY2UgdGhlIGxhc3Qgc3VjY2Vzc2Z1bCBzeW5jLiBVbmNoYW5nZWQgbWVzc2FnZSBkZXRhaWxzLCBib2RpZXMgYW5kIGNhbGVuZGFyIGVudHJpZXMgYXJlIHJldXNlZCBmcm9tIGNhY2hlLgotIE5ldyBtYWlsLCByZWFkL3VucmVhZCBjaGFuZ2VzLCBtb3ZlcywgZGVsZXRpb25zIGFuZCBkcmFmdCBjaGFuZ2VzIHVwZGF0ZSB0aGUgcmVsZXZhbnQgZm9sZGVycy4gQmFja2dyb3VuZCByZWZyZXNoIHByZXNlcnZlcyB0aGUgdmlzaWJsZSBHbWFpbCBwYWdlIGFuZCBmaWx0ZXJzLCBpbmNsdWRpbmcgY2hhbmdlcyB0aGF0IGxlYXZlIG1lc3NhZ2UgY291bnRzIHVuY2hhbmdlZC4KLSBFeHBpcmVkIEdtYWlsIGhpc3RvcnkgY2hlY2twb2ludHMgcmVidWlsZCB0aGUgcmVxdWVzdGVkIGNhY2hlZCB2aWV3cyBzYWZlbHkuIEludGVycnVwdGVkLCByYXRlLWxpbWl0ZWQgb3IgZmFpbGVkIHJlcXVlc3RzIHByZXNlcnZlIHRoZSBjaGVja3BvaW50IGFuZCBhdmFpbGFibGUgY2FjaGVkIG1lc3NhZ2VzIGZvciByZXRyeS4KLSBTeW5jaHJvbml6YXRpb24gY29vcmRpbmF0ZXMgY29uY3VycmVudCByZXF1ZXN0cywga2VlcHMgYWNjb3VudHMgaXNvbGF0ZWQsIGFuZCByZWplY3RzIHN0YWxlIGNhY2hlIHdyaXRlcy4gTG9jYWwgbWFpbGJveCBhY3Rpb25zIGludmFsaWRhdGUgb3IgdXBkYXRlIHRoZSBjb3JyZXNwb25kaW5nIGNhY2hlZCBtZXNzYWdlcy4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMDY6IFsjM10oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvMykg4oCUIFJlbGVhc2UgMlwuMThcLjM6IGluY3JlbWVudGFsIEdtYWlsIHN5bmMgdXNpbmcgaGlzdG9yeUlkLiBDb21taXQgWzY3ZjM4MTRdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvNjdmMzgxNGYwNTliMjFhNzFmMGJiMjhkNjA0ZDNlZjc5NzYzNzc1YikuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzMgLS0+CgojIyAyLjE4LjIgKDIwMjYtMTAtMDYpCgotIE9wZW5pbmcgYSBgLnBzZWAgZmlsZSByZXF1ZXN0cyB0aGUgZXhpc3RpbmcgUFdBIHdpbmRvdyB3aXRob3V0IHJlbG9hZGluZyBpdCBvbiBicm93c2VycyBzdXBwb3J0aW5nIHRoZSBMYXVuY2ggSGFuZGxlciBBUEkuIE11bHRpcGxlIGZpbGVzIG9wZW5lZCB0b2dldGhlciBzaGFyZSBvbmUgd2luZG93LgotIEEgbmV3IGZpbGUtbGF1bmNoIHdpbmRvdyBnb2VzIGRpcmVjdGx5IHRvIGl0cyBsb2NhbCBmaWxlcy4gU3RhcnR1cCBmb2xkZXIvbWVzc2FnZSBzeW5jaW5nLCBxdWV1ZWQgbWFpbGJveCB3b3JrLCBwb2xsaW5nLCBhbmQgbWVzc2FnZSBwcmVmZXRjaCBzdGF5IHBhdXNlZCB1bnRpbCBPcGVuIG1haWxib3ggb3IgUmVmcmVzaCBpcyBjaG9zZW4uIFBhc3N3b3JkIHNpZ24taW4gcHJlc2VydmVzIHRoaXMgYmVoYXZpb3IuCi0gRm9sZGVyIGNsZWFudXAgbm93IHNob3dzIGEgcHJvZ3Jlc3MgYmFyLCBzcGlubmVyLCBwcm9jZXNzZWQgY291bnRzLCBlc3RpbWF0ZWQgZmluaXNoIHRpbWUsIGFuZCBDYW5jZWwuIEVzdGltYXRlcyBhZGp1c3QgYWZ0ZXIgY29tcGxldGVkIGJhdGNoZXMuIENhbmNlbGxhdGlvbiBzdG9wcyBmdXR1cmUgYmF0Y2hlcyBhZnRlciB0aGUgY3VycmVudCByZXF1ZXN0IGZpbmlzaGVzIGFuZCBwcmVzZXJ2ZXMgdGhlIHJlbWFpbmluZyBzZWxlY3Rpb24gZm9yIGEgY29uZmlybWVkIHJlc3VtZS4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMDY6IFsjMl0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvMikg4oCUIFJlbGVhc2UgMlwuMThcLjI6IGZhc3QgUFNFIGZpbGUgbGF1bmNoZXMgYW5kIGNhbmNlbGxhYmxlIGNsZWFudXAgcHJvZ3Jlc3MuIENvbW1pdCBbNzg4YmQyMl0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC83ODhiZDIyNGZmYzg3MTAxOGM5MDQwYzRkYjBiZDczOGRkOGM1NWM1KS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjMiAtLT4KCiMjIDIuMTguMSAoMjAyNi0xMC0wNikKCi0gQWRkZWQgdGhpcyBjaGFuZ2Vsb2cgYW5kIGF1dG9tYXRpYyBtYWludGVuYW5jZSBhZnRlciBldmVyeSBtZXJnZSBpbnRvIGBtYWluYCwgaW5jbHVkaW5nIEdpdEh1YiBtZXJnZSwgc3F1YXNoLCBhbmQgcmViYXNlIG1lcmdlcy4KLSBFYWNoIG1lcmdlIHB1Ymxpc2hlcyBhIG5ldyBhcHAgdmVyc2lvbiBhdXRvbWF0aWNhbGx5IGlmIGl0cyBjaGFuZ2VzIGRvIG5vdCBhbHJlYWR5IGluY2x1ZGUgYSBoaWdoZXIgdmVyc2lvbiBudW1iZXIuCi0gVGhlIHVwZGF0ZSBkaWFsb2cgcHJlc2VudHMgcmVsZWFzZSBub3RlcyBiZWZvcmUgaW5zdGFsbGF0aW9uIGFuZCBhZ2FpbiBhZnRlciBhIHN1Y2Nlc3NmdWwgdXBkYXRlLiBOb3RlcyBhcmUgcGlubmVkIHRvIHRoZSBzYW1lIHNvdXJjZSByZXZpc2lvbiBhcyB0aGUgZG93bmxvYWRlZCBQSFAgZmlsZS4KLSBUaGUgUEhQIGZpbGUgaW5jbHVkZXMgYnVuZGxlZCByZWxlYXNlIG5vdGVzIHNvIGRlcGxveW1lbnQgY29udGludWVzIHRvIHJlcXVpcmUgb25seSBgaW5kZXgucGhwYC4KCiMjIyBTZW50LCBmb2xkZXIgY2xlYW51cCBhbmQgV2luZG93cyBmaWxlcwoKLSBTZW50LWZvbGRlciByb3dzIGFuZCBjYWxlbmRhciBlbnRyaWVzIHNob3cgcmVjaXBpZW50IG5hbWVzIGFuZCBhZGRyZXNzZXMsIHdpdGggQ2MvQmNjIGZhbGxiYWNrIHdoZW4gVG8gaXMgZW1wdHkuIFNlbmRlciBkZXRhaWxzIHJlbWFpbiBhdmFpbGFibGUgZm9yIHJlcGxpZXMgYW5kIHNlbmRlciBmaWx0ZXJpbmcuCi0gQWRkZWQgYSByZWQgY2xlYW51cCBiaW4gYWZ0ZXIgZWFjaCBmb2xkZXIncyB1bnJlYWQgY291bnQuIENob29zZSBvbmUgd2Vlaywgb25lIG1vbnRoLCB0d28gbW9udGhzLCBhbGwgbWVzc2FnZXMsIG9yIGEgY3VzdG9tIGRhdGU7IGN1dG9mZiBkYXRlcyBhcmUgaW5jbHVzaXZlIGFuZCBkaXNwbGF5ZWQgaW4gdGhlIGNvbmZpZ3VyZWQgYWNjb3VudCB0aW1lem9uZS4KLSBGb2xkZXIgY2xlYW51cCBwcmV2aWV3cyBhbGwgbWF0Y2hpbmcgbWVzc2FnZXMgYW5kIGFsd2F5cyByZXF1aXJlcyB0eXBpbmcgYFlFUyBERUxFVEUgQUxMYC4gU2VydmVyIHNuYXBzaG90cyBiaW5kIHRoZSBvcGVyYXRpb24gdG8gdGhlIGFjY291bnQsIGZvbGRlciwgc2VsZWN0ZWQgbWVzc2FnZXMsIGFuZCBkZXN0aW5hdGlvbjsgYmF0Y2hlcyBjYW4gcmVzdW1lIGFmdGVyIGEgZmFpbGVkIHJlcXVlc3QuCi0gQ2xlYW51cCBub3JtYWxseSBtb3ZlcyBtZXNzYWdlcyB0byBUcmFzaC4gQ2xlYW5pbmcgVHJhc2gsIG9yIGFuIElNQVAgYWNjb3VudCB3aXRob3V0IGEgZGV0ZWN0ZWQgVHJhc2ggZm9sZGVyLCBkZWxldGVzIHBlcm1hbmVudGx5OyB0aGUgY29uZmlybWF0aW9uIGV4cGxhaW5zIHdoaWNoIG9wZXJhdGlvbiBhcHBsaWVzLgotIEFkZGVkIGJsYWNrLWNhdCBhcHBsaWNhdGlvbiBhbmQgZG9jdW1lbnQgaWNvbnMsIGEgV2luZG93cyBgLmljb2AsIHBvcnRhYmxlIGAucHNlYCBlbWFpbCBhbmQgZHJhZnQgZmlsZXMsIGFuZCBsb2NhbC1maWxlIG9wZW5pbmcgd2l0aCBSZXBseSwgUmVwbHkgYWxsLCBGb3J3YXJkLCBhbmQgRWRpdCBjb3B5LgotIEFkZGVkIFdpbmRvd3MgYXBwIGluc3RhbGxhdGlvbiwgYC5wc2VgIGFzc29jaWF0aW9uLCBhbmQgaWNvbiBzZXR1cCBpbnN0cnVjdGlvbnMgaW4gYFJFQURNRS1XaW5kb3dzLVBTRS5tZGAuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTA2OiBbIzFdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzEpIOKAlCBSZWxlYXNlIDJcLjE4XC4xOiBTZW50IHJlY2lwaWVudHMsIGZvbGRlciBjbGVhbnVwLCBQU0UgZmlsZXMgYW5kIHVwZGF0ZSBjaGFuZ2Vsb2cuIENvbW1pdCBbY2IwMmVmZl0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC9jYjAyZWZmMTQwYWJlODFhYjNkNWQ4ZGMwYTNkNDBmMTg5M2Y4ZWU1KS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjMSAtLT4K', true) ?: '';
+  return base64_decode('IyBQU0UgRW1haWwgQ2xpZW50IGNoYW5nZWxvZwoKUmVsZWFzZSBub3RlcyBhcmUgc2hvd24gd2hlbiBjaGVja2luZyBmb3IgYW4gdXBkYXRlIGFuZCBhZnRlciBhbiB1cGRhdGUgaXMgaW5zdGFsbGVkLiBEYXRlcyBpbiBhdXRvbWF0aWNhbGx5IHJlY29yZGVkIG1lcmdlIGVudHJpZXMgdXNlIFVUQy4gVGhlIHJlcG9zaXRvcnkga2VlcHMgdGhlIGNvbXBsZXRlIGhpc3Rvcnk7IHRoZSBzaW5nbGUgUEhQIGZpbGUgYnVuZGxlcyB0aGUgbGF0ZXN0IG5vdGVzIGZvciBvZmZsaW5lIHVzZS4KCiMjIDIuMTguMTEgKDIwMjYtMTAtMTIpCgotIEVhY2ggYWNjb3VudCB1bmRlciBTcGFjZSB1c2VkIGhhcyBhIENsZWFuIGJ1dHRvbi4gQWNjb3VudCBjbGVhbnVwIHByZXZpZXdzIGVtYWlsIGxhcmdlciB0aGFuIDEsIDUsIDEwLCAyMCBvciA1MCBNQiwgb3IgYSBjdXN0b20gc2l6ZSwgYWNyb3NzIGFsbCBmb2xkZXJzIGluY2x1ZGluZyBTcGFtIGFuZCBUcmFzaC4KLSBBbnkgZGF0ZSBpcyB0aGUgZGVmYXVsdC4gQ2hvb3NlIG9sZGVyIHRoYW4gMSwgMyBvciA2IG1vbnRocywgb3IgMSwgMiwgMyBvciA1IHllYXJzLCBvciBhbiBpbmNsdXNpdmUgY3VzdG9tIGRhdGUgcmFuZ2Ugd2l0aCBlaXRoZXIgZW5kcG9pbnQgb3B0aW9uYWwuIERhdGVzIGZvbGxvdyB0aGUgc2VsZWN0ZWQgYWNjb3VudCB0aW1lem9uZS4KLSBTZWxlY3QgaW5kaXZpZHVhbCBtZXNzYWdlcywgdGhlIGN1cnJlbnQgcHJldmlldyBwYWdlIG9yIGFsbCBtYXRjaGluZyBtZXNzYWdlcy4gRGVsZXRpb24gYWx3YXlzIHJlcXVpcmVzIGBZRVMgREVMRVRFIFNFTEVDVEVEYDsgbWVzc2FnZXMgYWxyZWFkeSBpbiBUcmFzaCwgb3IgYW4gSU1BUCBhY2NvdW50IHdpdGhvdXQgVHJhc2gsIGFyZSBjbGVhcmx5IG1hcmtlZCBmb3IgcGVybWFuZW50IGRlbGV0aW9uLiBPdGhlciBtZXNzYWdlcyBtb3ZlIHRvIFRyYXNoLCB3aGljaCBkb2VzIG5vdCBpbW1lZGlhdGVseSBmcmVlIG1haWxib3ggcXVvdGEuCi0gU2VhcmNoIGFuZCBkZWxldGlvbiBydW4gaW4gY2FuY2VsbGFibGUgYmF0Y2hlcy4gU2VydmVyIHNuYXBzaG90cyBrZWVwIGFjY291bnRzLCBtZXNzYWdlIGlkZW50aWZpZXJzIGFuZCB0aGUgY29uZmlybWVkIHNlbGVjdGlvbiBpc29sYXRlZDsgcmV0cmllcyByZXN1bWUgdGhhdCBzYW1lIHNlbGVjdGlvbi4gRGVwbG95bWVudCBzdGlsbCByZXF1aXJlcyBvbmx5IGBpbmRleC5waHBgLgoKIyMgMi4xOC4xMCAoMjAyNi0xMC0xMCkKCi0gT24gbW9iaWxlLCB0aGUgdG9wLWxlZnQgYXBwbGljYXRpb24gaWNvbiBvcGVucyBhIG5hdGl2ZSBhY2NvdW50IHNlbGVjdG9yIHdoZW4gbW9yZSB0aGFuIG9uZSBlbWFpbCBhY2NvdW50IGlzIGNvbmZpZ3VyZWQuIEl0IHN0YXJ0cyBvbiB0aGUgY3VycmVudCBhY2NvdW50IGFuZCB1c2VzIHRoZSBleGlzdGluZyBhY2NvdW50IHN3aXRjaC1hbmQtcmVsb2FkIGJlaGF2aW9yLgotIFRoZSBpY29uIHN0YXlzIGRlY29yYXRpdmUgd2l0aCBhIHNpbmdsZSBhY2NvdW50LCBhbmQgdGhlIGRlc2t0b3AgYWNjb3VudCBiYWRnZSBtZW51IHN0YXlzIGF2YWlsYWJsZS4gVGhlIG1vYmlsZSBwaWNrZXIgcHJldmVudHMgcmVwZWF0ZWQgc3dpdGNoZXMgd2hpbGUgYSByZXF1ZXN0IGlzIHBlbmRpbmcgYW5kIHJlc3RvcmVzIHRoZSBjdXJyZW50IHNlbGVjdGlvbiBhZnRlciBhIGZhaWx1cmUuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTEwOiBbIzEwXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8xMCkg4oCUIFJlbGVhc2UgMlwuMThcLjEwOiBjaG9vc2UgYWNjb3VudHMgZnJvbSB0aGUgbW9iaWxlIGFwcCBpY29uLiBDb21taXQgWzY4ZjVhZTJdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvNjhmNWFlMjZhNTkyZjExNzI1YWI2OGY4MjE4ZmM3MDY2OWZmNmIzYSkuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzEwIC0tPgoKIyMgMi4xOC45ICgyMDI2LTEwLTEwKQoKLSBUb2dnbGUgYnV0dG9ucyB2aXNpYmx5IHJldHVybiB0byB1bnNlbGVjdGVkIHdoZW4gdGFwcGVkIGFnYWluLCBpbmNsdWRpbmcgb24gdG91Y2ggYnJvd3NlcnMgdGhhdCByZXRhaW4gaG92ZXIgc3R5bGluZy4gRnVsbCBzY3JlZW4sIG11bHRpcGxlIHNlbGVjdGlvbiwgZmlsdGVycywgY2FsZW5kYXIsIGxheW91dCBhbmQgY29tcG9zZSBtYXhpbWl6ZSBidXR0b25zIGtlZXAgdGhlaXIgdmlzdWFsIGFuZCBhY2Nlc3NpYmxlIHN0YXRlIGluIHN5bmMuCi0gVGhlIGZvb3RlciB1bnJlYWQgZmlsdGVyIGFuZCBjdXJyZW50LXBhZ2UvYWxsLXBhZ2VzIHNlbGVjdGlvbiBjb250cm9scyBub3cgdG9nZ2xlIG9mZiBvbiBhIHNlY29uZCB0YXAuIEZpbHRlciBjaGFuZ2VzIHJlc2V0IHNlbGVjdGlvbiBjb250cm9scyBpbW1lZGlhdGVseSwgYW5kIG91dGRhdGVkIElEIHJlc3BvbnNlcyBjYW5ub3QgcmVhY3RpdmF0ZSBjbGVhcmVkIHNlbGVjdGlvbnMgb3Igc2VsZWN0IG1lc3NhZ2VzIGluIGFub3RoZXIgdmlldy4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMTA6IFsjOV0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvOSkg4oCUIFJlbGVhc2UgMlwuMThcLjk6IHRvZ2dsZSBidXR0b25zIHR1cm4gb2ZmIGFuZCByZXNldCB0aGVpciBzZWxlY3RlZCBhcHBlYXJhbmNlLiBDb21taXQgWzNiMDE0ODldKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvM2IwMTQ4OWRiZDhjMTBjMzg5MzZjYmY1MmQ0YjZhN2JkNGY0MmIzNykuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzkgLS0+CgojIyAyLjE4LjggKDIwMjYtMTAtMTApCgotIE1vYmlsZSBzZWFyY2ggZml0cyBpbiB0aGUgdG9wIGhlYWRlciByb3cgYmVzaWRlIHRoZSBhdmF0YXIgYW5kIGFjdGlvbiBidXR0b25zLiBUaGUgZmllbGQgY2FuIHNocmluayB3aXRoIGEgY2xpcHBlZCBwbGFjZWhvbGRlciwgYW5kIGVkaXRpbmcgZnJlZXMgdGhlIHNlYXJjaCBpY29uJ3Mgc3BhY2UgZm9yIHRleHQuCi0gUG9ydGFibGUgZW1haWwgKC5QU0UpIGlzIHRoZSBmaXJzdCBvcHRpb24gaW4gdGhlIG1lc3NhZ2UgRXhwb3J0IG1lbnUsIGFoZWFkIG9mIE9yaWdpbmFsIGVtYWlsICguZW1sKS4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMTA6IFsjOF0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvOCkg4oCUIFJlbGVhc2UgMlwuMThcLjg6IGZpdCBtb2JpbGUgc2VhcmNoIGF0IHRoZSB0b3AgYW5kIHB1dCBQU0UgZXhwb3J0IGZpcnN0LiBDb21taXQgW2RkMDM3MjZdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9jb21taXQvZGQwMzcyNjNhNmZkYjAwZmU1MjVlZDM4ZWY3YmMxODA5N2Y2ZDZhOCkuIDwhLS0gcHNlLXByOnppb2JpdC9QU0UtRW1haWwtQ2xpZW50IzggLS0+CgojIyAyLjE4LjcgKDIwMjYtMTAtMTApCgotIFNldHRpbmdzIOKGkiBBcHBlYXJhbmNlIG5vdyBpbmNsdWRlcyBhIGZ1bGwgc2NyZWVuIHByZWZlcmVuY2UgYW5kIGVudGVyL2V4aXQgY29udHJvbHMsIHJlbWVtYmVyZWQgaW1tZWRpYXRlbHkgaW4gdGhlIGN1cnJlbnQgYnJvd3Nlci4KLSBTdXBwb3J0ZWQgbW9iaWxlIGJyb3dzZXJzIGFzayBvbmNlIHdoZXRoZXIgdG8gdXNlIGZ1bGwgc2NyZWVuLiBCb3RoIGFuc3dlcnMgYXJlIHJlbWVtYmVyZWQ7IHJlb3BlbmluZyB3aXRoIGZ1bGwgc2NyZWVuIHByZWZlcnJlZCBzaG93cyBhIGhlYWRlciBidXR0b24gdG8gcmVzdW1lIHdpdGggdGhlIHRhcCByZXF1aXJlZCBieSB0aGUgYnJvd3Nlci4KLSBUaGUgZmlyc3QgbW9iaWxlIHByb21wdCB3YWl0cyBmb3IgbG9jYWwtZmlsZSBvcGVuaW5nLCB1cGRhdGUgbm90aWNlcyBhbmQgb3RoZXIgZGlhbG9ncy4gQnJvd3NlciBleGl0cyBhbmQgZmFpbGVkIHJlcXVlc3RzIGtlZXAgdGhlIHNhdmVkIHByZWZlcmVuY2UgYXZhaWxhYmxlIGZvciBhIGxhdGVyIHJldHJ5LgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0xMDogWyM3XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC83KSDigJQgUmVsZWFzZSAyXC4xOFwuNzogcmVtZW1iZXJlZCBmdWxsIHNjcmVlbiBhbmQgZmlyc3QgbW9iaWxlIHByb21wdC4gQ29tbWl0IFsxMjEwMjM3XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0LzEyMTAyMzc5M2Q2YmRhMDFkNDBlOTUzMjkyNzJjZTFkN2Y0YjAzNTMpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCM3IC0tPgoKIyMgMi4xOC42ICgyMDI2LTEwLTEwKQoKLSBPbiBwaG9uZXMsIHNlYXJjaCBub3cgb2NjdXBpZXMgaXRzIG93biBmdWxsLXdpZHRoIGhlYWRlciByb3cuIFRoZSBpY29uLCB0ZXh0IGZpZWxkLCBzYXZlZC1zZWFyY2ggYW5kIGNsZWFyIGJ1dHRvbnMgc3RheSB0b2dldGhlciB3aXRob3V0IHdyYXBwaW5nLgotIFVsdHJhIENvbXBhY3QgbW9kZSBubyBsb25nZXIgcmVzZXJ2ZXMgZGVza3RvcCBsb2dvIHNwYWNlIG9uIG1vYmlsZS4gVGhlIG1lc3NhZ2UgYXJlYSBhZGp1c3RzIHRvIHRoZSBoZWFkZXIgaGVpZ2h0LCBrZWVwaW5nIHRoZSBmb290ZXIgbmF2aWdhdGlvbiBvbiBzY3JlZW4uCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTEwOiBbIzZdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzYpIOKAlCBSZWxlYXNlIDJcLjE4XC42OiBmaXggbW9iaWxlIHNlYXJjaCBsYXlvdXQuIENvbW1pdCBbNWFhNWM4Nl0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC81YWE1Yzg2NTdkZjRiM2NjOWZkNjgzNzdiYTk2ZWE2MjMwZjJmOTY3KS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjNiAtLT4KCiMjIDIuMTguNSAoMjAyNi0xMC0xMCkKCi0gUG9ydGFibGUgYC5wc2VgIGVtYWlsIGV4cG9ydHMgYW5kIGRvd25sb2FkZWQgY29tcG9zZSBkcmFmdHMgbm93IGxldCB5b3UgY2hvb3NlIHRoZSBmb2xkZXIgYW5kIGZpbGUgbmFtZSwganVzdCBsaWtlIHNhdmluZyBhdHRhY2htZW50cywgd2hlbiB0aGUgYnJvd3NlciBzdXBwb3J0cyB0aGUgbmF0aXZlIFNhdmUgQXMgZGlhbG9nLgotIENhbmNlbGxpbmcgU2F2ZSBBcyBzdG9wcyBiZWZvcmUgYXR0YWNobWVudHMgYXJlIHByZXBhcmVkLiBCcm93c2VycyB3aXRob3V0IHRoZSBuYXRpdmUgZGlhbG9nIG9mZmVyIGEgZmlsZS1uYW1lIHByb21wdCBhbmQga2VlcCB1c2luZyBub3JtYWwgZG93bmxvYWRzLgotIFVwZGF0ZXMgbm93IHJ1biBhdXRvbWF0ZWQgY2hlY2tzIGZvciBtYWlsYm94IHN5bmNocm9uaXphdGlvbiwgY2FjaGluZywgZGVsZXRpb25zLCBjbGVhbnVwLCBmaWxlIG9wZW5pbmcgYW5kIGV4cG9ydHMgYmVmb3JlIG1lcmdpbmcgY2hhbmdlcy4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMTA6IFsjNV0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvNSkg4oCUIFJlbGVhc2UgMlwuMThcLjU6IFNhdmUgQXMgZm9yIFBTRSBmaWxlcyBhbmQgcmVncmVzc2lvbiBDSS4gQ29tbWl0IFs4YjdkMTk3XShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0LzhiN2QxOTc2M2EwMTJjOGE1YWNkN2Y3NzllOWM3NWUxYWI1OWZjZTUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCM1IC0tPgoKIyMgMi4xOC40ICgyMDI2LTEwLTA3KQoKLSBRdWV1aW5nIGEgZGVsZXRpb24gaW1tZWRpYXRlbHkgcmVtb3ZlcyBpdHMgcm93cyBmcm9tIHRoZSB2aXNpYmxlIGZvbGRlciwgaW5jbHVkaW5nIGFmdGVyIEdtYWlsIGhpc3RvcnkgaGFzIGludmFsaWRhdGVkIHRoZSBwYWdlIGNhY2hlLiBSZWFkL3VucmVhZCwgcmVzdG9yZSBhbmQgcGVybWFuZW50LWRlbGV0ZSBhY3Rpb25zIGFsc28gdXBkYXRlIHZpc2libGUgcm93cyB3aXRob3V0IHJlbHlpbmcgb24gYSBjYWNoZWQgcGFnZS4KLSBSZWZyZXNoZWQgbGlzdHMgaGlkZSBwZW5kaW5nIHF1ZXVlZCBkZWxldGlvbnMgdW50aWwgdGhleSBhcmUgcHJvY2Vzc2VkIG9yIHVuZG9uZS4gT3B0aW1pc3RpYyBjYWNoZSB1cGRhdGVzIHByZXNlcnZlIEdtYWlsIHJldmlzaW9uIGFuZCB2aWV3LWZpbHRlciBtZXRhZGF0YS4KLSBCYWNrZ3JvdW5kIGxpc3QgcmVzcG9uc2VzIHN0YXJ0ZWQgYmVmb3JlIGEgbWFpbGJveCBhY3Rpb24gY2Fubm90IHJlcGxhY2UgdGhlIHVwZGF0ZWQgbGlzdC4gTXVsdGktYmF0Y2ggZGVsZXRpb24ga2VlcHMgdXNpbmcgaXRzIG9yaWdpbmFsIGZvbGRlciB3aGVuIHRoZSB1c2VyIG5hdmlnYXRlcyBlbHNld2hlcmUuCgojIyMgTWVyZ2VkIGNoYW5nZXMKLSAyMDI2LTEwLTA3OiBbIzRdKGh0dHBzOi8vZ2l0aHViLmNvbS96aW9iaXQvUFNFLUVtYWlsLUNsaWVudC9wdWxsLzQpIOKAlCBSZWxlYXNlIDJcLjE4XC40OiByZW1vdmUgcXVldWVkIGRlbGV0aW9ucyBmcm9tIG1lc3NhZ2UgbGlzdHMgaW1tZWRpYXRlbHkuIENvbW1pdCBbMzI3YWIwNV0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC8zMjdhYjA1OWFjZjZmNGYzZDc0Zjg2Mjc4YTRjYWZkMWQyYzY2OGVjKS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjNCAtLT4KCiMjIDIuMTguMyAoMjAyNi0xMC0wNikKCi0gR21haWwgYWNjb3VudHMgbm93IHNhdmUgYSBwZXItYWNjb3VudCBgaGlzdG9yeUlkYCBjaGVja3BvaW50IGFuZCByZXF1ZXN0IG1haWxib3ggY2hhbmdlcyBzaW5jZSB0aGUgbGFzdCBzdWNjZXNzZnVsIHN5bmMuIFVuY2hhbmdlZCBtZXNzYWdlIGRldGFpbHMsIGJvZGllcyBhbmQgY2FsZW5kYXIgZW50cmllcyBhcmUgcmV1c2VkIGZyb20gY2FjaGUuCi0gTmV3IG1haWwsIHJlYWQvdW5yZWFkIGNoYW5nZXMsIG1vdmVzLCBkZWxldGlvbnMgYW5kIGRyYWZ0IGNoYW5nZXMgdXBkYXRlIHRoZSByZWxldmFudCBmb2xkZXJzLiBCYWNrZ3JvdW5kIHJlZnJlc2ggcHJlc2VydmVzIHRoZSB2aXNpYmxlIEdtYWlsIHBhZ2UgYW5kIGZpbHRlcnMsIGluY2x1ZGluZyBjaGFuZ2VzIHRoYXQgbGVhdmUgbWVzc2FnZSBjb3VudHMgdW5jaGFuZ2VkLgotIEV4cGlyZWQgR21haWwgaGlzdG9yeSBjaGVja3BvaW50cyByZWJ1aWxkIHRoZSByZXF1ZXN0ZWQgY2FjaGVkIHZpZXdzIHNhZmVseS4gSW50ZXJydXB0ZWQsIHJhdGUtbGltaXRlZCBvciBmYWlsZWQgcmVxdWVzdHMgcHJlc2VydmUgdGhlIGNoZWNrcG9pbnQgYW5kIGF2YWlsYWJsZSBjYWNoZWQgbWVzc2FnZXMgZm9yIHJldHJ5LgotIFN5bmNocm9uaXphdGlvbiBjb29yZGluYXRlcyBjb25jdXJyZW50IHJlcXVlc3RzLCBrZWVwcyBhY2NvdW50cyBpc29sYXRlZCwgYW5kIHJlamVjdHMgc3RhbGUgY2FjaGUgd3JpdGVzLiBMb2NhbCBtYWlsYm94IGFjdGlvbnMgaW52YWxpZGF0ZSBvciB1cGRhdGUgdGhlIGNvcnJlc3BvbmRpbmcgY2FjaGVkIG1lc3NhZ2VzLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNjogWyMzXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8zKSDigJQgUmVsZWFzZSAyXC4xOFwuMzogaW5jcmVtZW50YWwgR21haWwgc3luYyB1c2luZyBoaXN0b3J5SWQuIENvbW1pdCBbNjdmMzgxNF0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L2NvbW1pdC82N2YzODE0ZjA1OWIyMWE3MWYwYmIyOGQ2MDRkM2VmNzk3NjM3NzViKS4gPCEtLSBwc2UtcHI6emlvYml0L1BTRS1FbWFpbC1DbGllbnQjMyAtLT4KCiMjIDIuMTguMiAoMjAyNi0xMC0wNikKCi0gT3BlbmluZyBhIGAucHNlYCBmaWxlIHJlcXVlc3RzIHRoZSBleGlzdGluZyBQV0Egd2luZG93IHdpdGhvdXQgcmVsb2FkaW5nIGl0IG9uIGJyb3dzZXJzIHN1cHBvcnRpbmcgdGhlIExhdW5jaCBIYW5kbGVyIEFQSS4gTXVsdGlwbGUgZmlsZXMgb3BlbmVkIHRvZ2V0aGVyIHNoYXJlIG9uZSB3aW5kb3cuCi0gQSBuZXcgZmlsZS1sYXVuY2ggd2luZG93IGdvZXMgZGlyZWN0bHkgdG8gaXRzIGxvY2FsIGZpbGVzLiBTdGFydHVwIGZvbGRlci9tZXNzYWdlIHN5bmNpbmcsIHF1ZXVlZCBtYWlsYm94IHdvcmssIHBvbGxpbmcsIGFuZCBtZXNzYWdlIHByZWZldGNoIHN0YXkgcGF1c2VkIHVudGlsIE9wZW4gbWFpbGJveCBvciBSZWZyZXNoIGlzIGNob3Nlbi4gUGFzc3dvcmQgc2lnbi1pbiBwcmVzZXJ2ZXMgdGhpcyBiZWhhdmlvci4KLSBGb2xkZXIgY2xlYW51cCBub3cgc2hvd3MgYSBwcm9ncmVzcyBiYXIsIHNwaW5uZXIsIHByb2Nlc3NlZCBjb3VudHMsIGVzdGltYXRlZCBmaW5pc2ggdGltZSwgYW5kIENhbmNlbC4gRXN0aW1hdGVzIGFkanVzdCBhZnRlciBjb21wbGV0ZWQgYmF0Y2hlcy4gQ2FuY2VsbGF0aW9uIHN0b3BzIGZ1dHVyZSBiYXRjaGVzIGFmdGVyIHRoZSBjdXJyZW50IHJlcXVlc3QgZmluaXNoZXMgYW5kIHByZXNlcnZlcyB0aGUgcmVtYWluaW5nIHNlbGVjdGlvbiBmb3IgYSBjb25maXJtZWQgcmVzdW1lLgoKIyMjIE1lcmdlZCBjaGFuZ2VzCi0gMjAyNi0xMC0wNjogWyMyXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvcHVsbC8yKSDigJQgUmVsZWFzZSAyXC4xOFwuMjogZmFzdCBQU0UgZmlsZSBsYXVuY2hlcyBhbmQgY2FuY2VsbGFibGUgY2xlYW51cCBwcm9ncmVzcy4gQ29tbWl0IFs3ODhiZDIyXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0Lzc4OGJkMjI0ZmZjODcxMDE4YzkwNDBjNGRiMGJkNzM4ZGQ4YzU1YzUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMyIC0tPgoKIyMgMi4xOC4xICgyMDI2LTEwLTA2KQoKLSBBZGRlZCB0aGlzIGNoYW5nZWxvZyBhbmQgYXV0b21hdGljIG1haW50ZW5hbmNlIGFmdGVyIGV2ZXJ5IG1lcmdlIGludG8gYG1haW5gLCBpbmNsdWRpbmcgR2l0SHViIG1lcmdlLCBzcXVhc2gsIGFuZCByZWJhc2UgbWVyZ2VzLgotIEVhY2ggbWVyZ2UgcHVibGlzaGVzIGEgbmV3IGFwcCB2ZXJzaW9uIGF1dG9tYXRpY2FsbHkgaWYgaXRzIGNoYW5nZXMgZG8gbm90IGFscmVhZHkgaW5jbHVkZSBhIGhpZ2hlciB2ZXJzaW9uIG51bWJlci4KLSBUaGUgdXBkYXRlIGRpYWxvZyBwcmVzZW50cyByZWxlYXNlIG5vdGVzIGJlZm9yZSBpbnN0YWxsYXRpb24gYW5kIGFnYWluIGFmdGVyIGEgc3VjY2Vzc2Z1bCB1cGRhdGUuIE5vdGVzIGFyZSBwaW5uZWQgdG8gdGhlIHNhbWUgc291cmNlIHJldmlzaW9uIGFzIHRoZSBkb3dubG9hZGVkIFBIUCBmaWxlLgotIFRoZSBQSFAgZmlsZSBpbmNsdWRlcyBidW5kbGVkIHJlbGVhc2Ugbm90ZXMgc28gZGVwbG95bWVudCBjb250aW51ZXMgdG8gcmVxdWlyZSBvbmx5IGBpbmRleC5waHBgLgoKIyMjIFNlbnQsIGZvbGRlciBjbGVhbnVwIGFuZCBXaW5kb3dzIGZpbGVzCgotIFNlbnQtZm9sZGVyIHJvd3MgYW5kIGNhbGVuZGFyIGVudHJpZXMgc2hvdyByZWNpcGllbnQgbmFtZXMgYW5kIGFkZHJlc3Nlcywgd2l0aCBDYy9CY2MgZmFsbGJhY2sgd2hlbiBUbyBpcyBlbXB0eS4gU2VuZGVyIGRldGFpbHMgcmVtYWluIGF2YWlsYWJsZSBmb3IgcmVwbGllcyBhbmQgc2VuZGVyIGZpbHRlcmluZy4KLSBBZGRlZCBhIHJlZCBjbGVhbnVwIGJpbiBhZnRlciBlYWNoIGZvbGRlcidzIHVucmVhZCBjb3VudC4gQ2hvb3NlIG9uZSB3ZWVrLCBvbmUgbW9udGgsIHR3byBtb250aHMsIGFsbCBtZXNzYWdlcywgb3IgYSBjdXN0b20gZGF0ZTsgY3V0b2ZmIGRhdGVzIGFyZSBpbmNsdXNpdmUgYW5kIGRpc3BsYXllZCBpbiB0aGUgY29uZmlndXJlZCBhY2NvdW50IHRpbWV6b25lLgotIEZvbGRlciBjbGVhbnVwIHByZXZpZXdzIGFsbCBtYXRjaGluZyBtZXNzYWdlcyBhbmQgYWx3YXlzIHJlcXVpcmVzIHR5cGluZyBgWUVTIERFTEVURSBBTExgLiBTZXJ2ZXIgc25hcHNob3RzIGJpbmQgdGhlIG9wZXJhdGlvbiB0byB0aGUgYWNjb3VudCwgZm9sZGVyLCBzZWxlY3RlZCBtZXNzYWdlcywgYW5kIGRlc3RpbmF0aW9uOyBiYXRjaGVzIGNhbiByZXN1bWUgYWZ0ZXIgYSBmYWlsZWQgcmVxdWVzdC4KLSBDbGVhbnVwIG5vcm1hbGx5IG1vdmVzIG1lc3NhZ2VzIHRvIFRyYXNoLiBDbGVhbmluZyBUcmFzaCwgb3IgYW4gSU1BUCBhY2NvdW50IHdpdGhvdXQgYSBkZXRlY3RlZCBUcmFzaCBmb2xkZXIsIGRlbGV0ZXMgcGVybWFuZW50bHk7IHRoZSBjb25maXJtYXRpb24gZXhwbGFpbnMgd2hpY2ggb3BlcmF0aW9uIGFwcGxpZXMuCi0gQWRkZWQgYmxhY2stY2F0IGFwcGxpY2F0aW9uIGFuZCBkb2N1bWVudCBpY29ucywgYSBXaW5kb3dzIGAuaWNvYCwgcG9ydGFibGUgYC5wc2VgIGVtYWlsIGFuZCBkcmFmdCBmaWxlcywgYW5kIGxvY2FsLWZpbGUgb3BlbmluZyB3aXRoIFJlcGx5LCBSZXBseSBhbGwsIEZvcndhcmQsIGFuZCBFZGl0IGNvcHkuCi0gQWRkZWQgV2luZG93cyBhcHAgaW5zdGFsbGF0aW9uLCBgLnBzZWAgYXNzb2NpYXRpb24sIGFuZCBpY29uIHNldHVwIGluc3RydWN0aW9ucyBpbiBgUkVBRE1FLVdpbmRvd3MtUFNFLm1kYC4KCiMjIyBNZXJnZWQgY2hhbmdlcwotIDIwMjYtMTAtMDY6IFsjMV0oaHR0cHM6Ly9naXRodWIuY29tL3ppb2JpdC9QU0UtRW1haWwtQ2xpZW50L3B1bGwvMSkg4oCUIFJlbGVhc2UgMlwuMThcLjE6IFNlbnQgcmVjaXBpZW50cywgZm9sZGVyIGNsZWFudXAsIFBTRSBmaWxlcyBhbmQgdXBkYXRlIGNoYW5nZWxvZy4gQ29tbWl0IFtjYjAyZWZmXShodHRwczovL2dpdGh1Yi5jb20vemlvYml0L1BTRS1FbWFpbC1DbGllbnQvY29tbWl0L2NiMDJlZmYxNDBhYmU4MWFiM2Q1ZDhkYzBhM2Q0MGYxODkzZjhlZTUpLiA8IS0tIHBzZS1wcjp6aW9iaXQvUFNFLUVtYWlsLUNsaWVudCMxIC0tPgo=', true) ?: '';
 }
 /* PSE_EMBEDDED_CHANGELOG_END */
 
@@ -11132,6 +11383,20 @@ function pseHandleAjax(string $action, array $settings): void
         'uids' => $allUids,
         'total' => count($allUids)
       ]);
+      break;
+
+    case 'account_cleanup_start':
+    case 'account_cleanup_scan':
+    case 'account_cleanup_page':
+    case 'account_cleanup_execute':
+      $cleanupSettings = pseSettingsForAccount($settings, (string)($data['accountId'] ?? ''));
+      if ($cleanupSettings === null) throw new RuntimeException('The email account no longer exists. Reopen cleanup.');
+      $cleanupToken = (string)($data['token'] ?? '');
+      if ($action === 'account_cleanup_start') $cleanupResult = pseAccountCleanupStart($cleanupSettings, $data);
+      elseif ($action === 'account_cleanup_scan') $cleanupResult = pseAccountCleanupScan($cleanupSettings, $cleanupToken);
+      elseif ($action === 'account_cleanup_execute') $cleanupResult = pseAccountCleanupExecute($cleanupSettings, $cleanupToken, $data);
+      else $cleanupResult = pseAccountCleanupTransaction($cleanupSettings, $cleanupToken, function (array &$snapshot) use ($data): array { return ['page' => max(1, (int)($data['page'] ?? 1))]; });
+      pseJson(['ok' => true, 'cleanup' => $cleanupResult]);
       break;
 
     case 'folder_cleanup_options':
@@ -16810,6 +17075,64 @@ if (!headers_sent()) {
     </div>
   </div>
 
+  <div class="modal fade" id="accountCleanupModal" tabindex="-1" aria-labelledby="accountCleanupTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="accountCleanupTitle">Clean account: <span id="accountCleanupName"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label class="form-label" for="accountCleanupSize">Show only email bigger than</label>
+              <div class="d-flex gap-2">
+                <select class="form-select" id="accountCleanupSize">
+                  <option value="1">1 MB</option><option value="5" selected>5 MB</option><option value="10">10 MB</option><option value="20">20 MB</option><option value="50">50 MB</option><option value="custom">Custom</option>
+                </select>
+                <input class="form-control d-none" id="accountCleanupCustomSize" type="number" min="0.01" max="102400" step="any" value="5" aria-label="Custom size in MB" placeholder="MB">
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label" for="accountCleanupRange">Date range</label>
+              <select class="form-select" id="accountCleanupRange">
+                <option value="any" selected>Any date</option><option value="month">Older than 1 month</option><option value="three_months">Older than 3 months</option><option value="six_months">Older than 6 months</option><option value="year">Older than 1 year</option><option value="two_years">Older than 2 years</option><option value="three_years">Older than 3 years</option><option value="five_years">Older than 5 years</option><option value="custom">Custom date range</option>
+              </select>
+            </div>
+            <div class="col-12 d-none" id="accountCleanupDates">
+              <div class="row g-2">
+                <div class="col-sm-6"><label class="form-label" for="accountCleanupFrom">From (included; optional)</label><input type="date" class="form-control" id="accountCleanupFrom" min="1970-01-01"></div>
+                <div class="col-sm-6"><label class="form-label" for="accountCleanupUntil">Through (included; optional)</label><input type="date" class="form-control" id="accountCleanupUntil" min="1970-01-01"></div>
+              </div>
+            </div>
+          </div>
+          <div class="form-text mt-2">Searches every folder, including Spam and Trash. Size includes attachments (1 MB = 1,048,576 bytes; Gmail reports an estimated message size). Dates use the account timezone.</div>
+          <div class="alert alert-warning small mt-3">Selected messages are moved to Trash. Messages already in Trash, or in an IMAP account without a Trash folder, are permanently deleted and marked below. Moving to Trash does not immediately free mailbox space.</div>
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            <button class="btn btn-primary" id="accountCleanupSearch" type="button"><i class="fa-solid fa-magnifying-glass me-1"></i>Show matching email</button>
+            <button class="btn btn-outline-secondary" id="accountCleanupSelectAll" type="button" disabled>Select all matches</button>
+            <span class="small" id="accountCleanupSelection">0 selected</span>
+          </div>
+          <div id="accountCleanupStatus" class="small mb-2" role="status" aria-live="polite"></div>
+          <div class="progress d-none mb-3" id="accountCleanupProgress"><div class="progress-bar progress-bar-striped progress-bar-animated" id="accountCleanupProgressBar" role="progressbar" aria-label="Account cleanup progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width:0%"></div></div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead><tr><th scope="col"><input class="form-check-input" id="accountCleanupSelectPage" type="checkbox" aria-label="Select this page" disabled></th><th scope="col">Email</th><th scope="col">Date</th><th scope="col">Size</th><th scope="col">Folder / action</th></tr></thead>
+              <tbody id="accountCleanupRows"><tr><td colspan="5" class="text-secondary py-3">Choose filters, then show matching email.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="d-flex justify-content-center align-items-center gap-3">
+            <button class="btn btn-sm btn-outline-secondary" id="accountCleanupPrevious" type="button" disabled aria-label="Previous page"><i class="fa-solid fa-chevron-left"></i></button><span class="small" id="accountCleanupPage">Page 1 of 1</span><button class="btn btn-sm btn-outline-secondary" id="accountCleanupNext" type="button" disabled aria-label="Next page"><i class="fa-solid fa-chevron-right"></i></button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="accountCleanupCancel">Close</button>
+          <button type="button" class="btn btn-danger" id="accountCleanupDelete" disabled><i class="fa-solid fa-trash-can me-1"></i>Delete selected</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal fade" id="composeModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
       <div class="modal-content">
@@ -17717,6 +18040,8 @@ if (!headers_sent()) {
       const settingsModal = new bootstrap.Modal('#settingsModal');
       const folderCleanupModal = new bootstrap.Modal('#folderCleanupModal', {backdrop: 'static'});
       let folderCleanupContext = null;
+      const accountCleanupModal = new bootstrap.Modal('#accountCleanupModal', {backdrop: 'static'});
+      let accountCleanupContext = null;
       let folderCleanupClosing = false;
 
       function escapeHtml(value) {
@@ -18954,6 +19279,228 @@ if (!headers_sent()) {
           $('#statUnread').textContent = current.unseen;
         }
       }
+
+      function updateAccountCleanupControls() {
+        const context = accountCleanupContext;
+        const job = context?.job;
+        const busy = Boolean(context?.busy);
+        const locked = Boolean(job?.selectionLocked || context?.executionStarted);
+        for (const id of ['Size', 'CustomSize', 'Range', 'From', 'Until']) $('#accountCleanup' + id).disabled = busy || locked;
+        $('#accountCleanupCustomSize').classList.toggle('d-none', $('#accountCleanupSize').value !== 'custom');
+        $('#accountCleanupDates').classList.toggle('d-none', $('#accountCleanupRange').value !== 'custom');
+        $('#accountCleanupSearch').disabled = busy;
+        $('#accountCleanupSearch').textContent = job && !job.scanComplete ? 'Resume search' : 'Show matching email';
+        $('#accountCleanupSelectAll').disabled = busy || locked || !job?.scanComplete || !job.count;
+        $('#accountCleanupSelectAll').textContent = context?.all ? 'Clear selection' : 'Select all matches';
+        const selected = locked ? Math.max(0, Number(job?.selectedCount || context?.submittedCount || 0) - Number(job?.processed || 0)) : context?.all ? Number(job?.count || 0) : context?.selected.size || 0;
+        $('#accountCleanupSelection').textContent = `${selected.toLocaleString()} selected`;
+        $('#accountCleanupDelete').disabled = busy || !job?.scanComplete || !selected || Boolean(job.complete);
+        $('#accountCleanupDelete').textContent = locked && !job?.complete ? 'Resume deletion' : 'Delete selected';
+        $('#accountCleanupCancel').textContent = busy ? (context.cancelRequested ? 'Cancelling…' : 'Cancel operation') : 'Close';
+        $('#accountCleanupPrevious').disabled = busy || !job || job.page <= 1;
+        $('#accountCleanupNext').disabled = busy || !job || job.page >= job.pages;
+        const pageRows = job?.rows || [];
+        const pageSelected = pageRows.filter(row => context?.all || context?.selected.has(row.index)).length;
+        const selectPage = $('#accountCleanupSelectPage');
+        selectPage.disabled = busy || locked || !job?.scanComplete || !pageRows.length;
+        selectPage.checked = Boolean(pageRows.length && pageSelected === pageRows.length);
+        selectPage.indeterminate = pageSelected > 0 && pageSelected < pageRows.length;
+        $$('#accountCleanupRows input').forEach(input => { input.disabled = busy || locked || !job?.scanComplete; });
+      }
+
+      function renderAccountCleanup() {
+        const context = accountCleanupContext;
+        const job = context?.job;
+        $('#accountCleanupRows').innerHTML = (job?.rows || []).map(row => `
+          <tr>
+            <td><input class="form-check-input" type="checkbox" data-cleanup-index="${row.index}" aria-label="${escapeHtml('Select ' + row.subject)}" ${context.all || context.selected.has(row.index) ? 'checked' : ''}></td>
+            <td style="min-width:180px;max-width:420px"><div class="text-break fw-semibold">${escapeHtml(row.subject || '(No subject)')}</div><div class="small text-secondary text-break">${escapeHtml(row.from)}</div></td>
+            <td class="small text-nowrap">${escapeHtml(row.date)}</td><td class="text-nowrap">${escapeHtml(formatStorageBytes(row.size))}</td>
+            <td class="small">${escapeHtml(row.folder)}${row.permanent ? '<div class="text-danger fw-semibold">Permanent deletion</div>' : '<div class="text-secondary">Move to Trash</div>'}</td>
+          </tr>`).join('') || '<tr><td colspan="5" class="text-secondary py-3">No matching emails.</td></tr>';
+        $('#accountCleanupPage').textContent = `Page ${job?.page || 1} of ${job?.pages || 1}`;
+        updateAccountCleanupControls();
+      }
+
+      function accountCleanupSummary(job) {
+        return `${Number(job.count).toLocaleString()} matching emails · ${formatStorageBytes(job.bytes)} · ${job.filters.timeZone}${job.permanentCount ? ` · ${job.permanentCount} marked for permanent deletion` : ''}`;
+      }
+
+      function openAccountCleanup(account) {
+        if (accountCleanupContext?.busy) return;
+        accountCleanupContext = {accountId: String(account.id), name: account.name || account.id, selected: new Set(), all: false, job: null, busy: false, cancelRequested: false, executionStarted: false};
+        $('#accountCleanupName').textContent = accountCleanupContext.name;
+        $('#accountCleanupSize').value = '5';
+        $('#accountCleanupCustomSize').value = '5';
+        $('#accountCleanupRange').value = 'any';
+        $('#accountCleanupFrom').value = $('#accountCleanupUntil').value = '';
+        $('#accountCleanupStatus').textContent = 'Choose filters, then show matching email.';
+        $('#accountCleanupProgress').classList.add('d-none');
+        renderAccountCleanup();
+        accountCleanupModal.show();
+      }
+
+      async function searchAccountCleanup() {
+        const context = accountCleanupContext;
+        if (!context || context.busy) return;
+        const minMB = $('#accountCleanupSize').value === 'custom' ? Number($('#accountCleanupCustomSize').value) : Number($('#accountCleanupSize').value);
+        if (!Number.isFinite(minMB) || minMB <= 0 || minMB > 102400) {
+          $('#accountCleanupStatus').textContent = 'Enter a custom size greater than zero and no more than 102400 MB.';
+          return;
+        }
+        context.busy = true;
+        context.cancelRequested = false;
+        pausePrefetch('account-cleanup', true);
+        updateAccountCleanupControls();
+        try {
+          if (!context.job || context.job.scanComplete || context.executionStarted) {
+            const result = await api('account_cleanup_start', {accountId: context.accountId, minMB, mode: $('#accountCleanupRange').value, from: $('#accountCleanupFrom').value, until: $('#accountCleanupUntil').value}, {spinner: false});
+            context.job = result.cleanup;
+            context.selected.clear();
+            context.all = false;
+            context.executionStarted = false;
+          }
+          while (!context.job.scanComplete && !context.cancelRequested) {
+            $('#accountCleanupStatus').textContent = `Searching… ${context.job.scanned.toLocaleString()} messages checked; ${context.job.count.toLocaleString()} match. You can cancel and resume.`;
+            context.job = (await api('account_cleanup_scan', {accountId: context.accountId, token: context.job.token}, {spinner: false})).cleanup;
+            renderAccountCleanup();
+          }
+          $('#accountCleanupStatus').textContent = (context.job.scanComplete ? '' : 'Search paused. Resume to finish checking every folder. ') + accountCleanupSummary(context.job);
+        } catch (error) {
+          $('#accountCleanupStatus').textContent = error.message;
+          if (/search again|account changed/i.test(error.message)) context.job = null;
+        } finally {
+          context.busy = false;
+          resumePrefetch('account-cleanup');
+          renderAccountCleanup();
+        }
+      }
+
+      async function pageAccountCleanup(page) {
+        const context = accountCleanupContext;
+        if (!context?.job || context.busy) return;
+        context.busy = true;
+        updateAccountCleanupControls();
+        try { context.job = (await api('account_cleanup_page', {accountId: context.accountId, token: context.job.token, page}, {spinner: false})).cleanup; }
+        catch (error) { $('#accountCleanupStatus').textContent = error.message; }
+        finally { context.busy = false; renderAccountCleanup(); }
+      }
+
+      async function deleteAccountCleanup() {
+        const context = accountCleanupContext;
+        if (!context?.job?.scanComplete || context.busy || context.job.complete) return;
+        const selectedCount = context.job.selectionLocked || context.executionStarted ? Math.max(0, (context.job.selectedCount || context.submittedCount) - context.job.processed) : context.all ? context.job.count : context.selected.size;
+        if (!selectedCount) return;
+        context.busy = true;
+        context.cancelRequested = false;
+        updateAccountCleanupControls();
+        let attempted = false;
+        let timer = null;
+        pausePrefetch('account-cleanup', true);
+        try {
+          const confirmation = await swalTypedConfirmation('Delete selected email?', `${selectedCount} selected messages in "${context.name}" will be deleted. Messages marked Permanent deletion cannot be recovered; the others move to Trash.`, 'Delete selected', 'YES DELETE SELECTED');
+          if (confirmation === null || context.cancelRequested) return;
+          context.executionStarted = true;
+          context.submittedCount = selectedCount + Number(context.job.processed || 0);
+          const started = Date.now();
+          const initialProcessed = Number(context.job.processed || 0);
+          const progress = () => {
+            const job = context.job;
+            const total = job.selectedCount || context.submittedCount;
+            const processed = Number(job.processed || 0);
+            const percent = Math.min(100, total ? processed / total * 100 : 0);
+            const bar = $('#accountCleanupProgressBar');
+            bar.style.width = `${percent}%`;
+            bar.textContent = `${Math.round(percent)}%`;
+            bar.setAttribute('aria-valuenow', String(Math.round(percent)));
+            const completed = processed - initialProcessed;
+            const remainingSeconds = completed > 0 ? Math.ceil((Date.now() - started) / 1000 / completed * (total - processed)) : null;
+            $('#accountCleanupStatus').textContent = `${context.cancelRequested ? 'Cancelling after this batch… ' : ''}${processed} of ${total} processed; ${job.affected || 0} deleted; ${job.skipped || 0} skipped.${remainingSeconds === null ? ' Estimating time…' : ` Estimated time remaining: ${remainingSeconds}s.`}`;
+          };
+          $('#accountCleanupProgress').classList.remove('d-none');
+          progress();
+          timer = setInterval(progress, 1000);
+          while (!context.job.complete && !context.cancelRequested) {
+            attempted = true;
+            const result = await api('account_cleanup_execute', {accountId: context.accountId, token: context.job.token, all: context.all, indices: [...context.selected], confirmation}, {spinner: false});
+            context.job = result.cleanup;
+            progress();
+          }
+          $('#accountCleanupStatus').textContent = context.job.complete ? `Completed: ${context.job.affected} messages deleted; ${context.job.skipped} skipped because they changed or no longer exist.` : `Deletion paused: ${context.job.processed} processed. Resume deletion to finish the same selection.`;
+        } catch (error) {
+          $('#accountCleanupStatus').textContent = `${error.message}${attempted ? ' Some messages may already have been deleted. Resume to retry the same selection.' : ''}`;
+          if (/search again|account changed/i.test(error.message)) {
+            context.job = null;
+            context.executionStarted = false;
+            context.selected.clear();
+            context.all = false;
+          }
+        } finally {
+          if (timer !== null) clearInterval(timer);
+          context.busy = false;
+          renderAccountCleanup();
+          if (attempted && String(initialSettings.account_id) === context.accountId) {
+            state.messageRequestSerial++;
+            for (const folder of state.folders) invalidateMessageCacheForFolder(folder.id);
+            state.selectedUid = null;
+            state.currentMessage = null;
+            state.selectedUids.clear();
+            state.allPagesSelected = false;
+            clearPreview();
+            await loadFolders(false, true, true, 'Updating mailbox after cleanup…');
+          }
+          if (attempted) await loadSidebarSpaceUsage(true);
+          resumePrefetch('account-cleanup');
+        }
+      }
+
+      $('#accountCleanupSearch').addEventListener('click', searchAccountCleanup);
+      $('#accountCleanupDelete').addEventListener('click', deleteAccountCleanup);
+      $('#accountCleanupPrevious').addEventListener('click', () => pageAccountCleanup(accountCleanupContext.job.page - 1));
+      $('#accountCleanupNext').addEventListener('click', () => pageAccountCleanup(accountCleanupContext.job.page + 1));
+      $('#accountCleanupCancel').addEventListener('click', () => {
+        if (accountCleanupContext?.busy) { accountCleanupContext.cancelRequested = true; updateAccountCleanupControls(); }
+        else accountCleanupModal.hide();
+      });
+      $('#accountCleanupSelectAll').addEventListener('click', () => {
+        const context = accountCleanupContext;
+        if (!context?.job?.scanComplete || context.busy || context.executionStarted) return;
+        context.all = !context.all;
+        context.selected.clear();
+        renderAccountCleanup();
+      });
+      function accountCleanupSetSelected(indices, selected) {
+        const context = accountCleanupContext;
+        if (!context || context.busy || context.executionStarted || !context.job?.scanComplete) return;
+        if (context.all && !selected) {
+          context.all = false;
+          context.selected = new Set(Array.from({length: context.job.count}, (_, index) => index));
+        }
+        for (const index of indices) {
+          if (selected) context.selected.add(index);
+          else context.selected.delete(index);
+        }
+        renderAccountCleanup();
+      }
+      $('#accountCleanupSelectPage').addEventListener('change', event => accountCleanupSetSelected(accountCleanupContext.job.rows.map(row => row.index), event.target.checked));
+      $('#accountCleanupRows').addEventListener('change', event => {
+        const index = event.target.dataset.cleanupIndex;
+        if (index !== undefined) accountCleanupSetSelected([Number(index)], event.target.checked);
+      });
+      for (const id of ['Size', 'CustomSize', 'Range', 'From', 'Until']) {
+        $('#accountCleanup' + id).addEventListener('change', () => {
+          const context = accountCleanupContext;
+          if (!context || context.busy || context.executionStarted) return;
+          context.job = null;
+          context.selected.clear();
+          context.all = false;
+          $('#accountCleanupStatus').textContent = 'Filters changed. Show matching email to refresh the results.';
+          renderAccountCleanup();
+        });
+      }
+      $('#accountCleanupModal').addEventListener('hide.bs.modal', event => {
+        if (accountCleanupContext?.busy) { event.preventDefault(); accountCleanupContext.cancelRequested = true; updateAccountCleanupControls(); }
+      });
 
       function formatCleanupDate(date) {
         const parts = String(date || '').split('-').map(Number);
@@ -25274,6 +25821,7 @@ if (!headers_sent()) {
             <div class="pse-space-row"><span>Images/files</span><span>${escapeHtml(formatStorageBytes(account.assetBytes))}</span></div>
             <div class="pse-space-row"><span>Total</span><b>${escapeHtml(formatStorageBytes(account.bytes))}</b></div>
             <div class="pse-space-row"><span>Files</span><span>${Number(account.files || 0).toLocaleString()}</span></div>
+            <button type="button" class="btn btn-sm btn-outline-danger mt-2" data-clean-account="${escapeHtml(account.id)}" aria-label="${escapeHtml('Clean ' + (account.name || account.id))}"><i class="fa-solid fa-broom me-1" aria-hidden="true"></i>Clean</button>
           </div>
         `).join('');
         const quotaVisible = initialSettings.account_type === 'imap';
@@ -25314,6 +25862,10 @@ if (!headers_sent()) {
           ${accountRows ? `<div class="pse-space-section"><div class="fw-semibold mb-1">By account</div>${accountRows}</div>` : ''}
           ${quotaHtml}
         `;
+        $$('#spaceUsedContent [data-clean-account]').forEach(button => button.addEventListener('click', () => {
+          const account = accounts.find(item => item.id === button.dataset.cleanAccount);
+          if (account) openAccountCleanup(account);
+        }));
       }
 
       async function loadSidebarSpaceUsage(force = false) {

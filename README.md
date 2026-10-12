@@ -4,6 +4,12 @@ Single-file PHP email client for IMAP/SMTP and Google OAuth2/Gmail API accounts.
 
 Deploy `index.php` on your PHP web server and open it to configure the application. The file serves its own PWA manifest, service worker, and embedded icons. PHP 7.4+ and OpenSSL/JSON are required; regular mail accounts also require PHP IMAP. Gmail needs cURL or HTTPS URL access. Downloading attachment ZIPs requires PHP ZIP.
 
+## Changes in 2.18.11
+
+- Expand **Space used** in the left column and press **Clean** next to an account to search that account across every folder, including Spam and Trash. This does not change your active account. Size presets are 1, 5, 10, 20 and 50 MB, with a custom size; 1 MB is 1,048,576 bytes and matches must be strictly larger. Gmail reports an estimated message size.
+- Account cleanup defaults to **Any date**. Age presets are older than 1/3/6 months or 1/2/3/5 years, using calendar months and an exclusive cutoff day in the account timezone. A custom range includes its boundary dates; either endpoint can be left open. Review the paginated sender/subject/date/size/folder results and select individual messages, one page, or all matches. Nothing is selected automatically.
+- Account cleanup always requires `YES DELETE SELECTED`. The preview marks permanent deletion for mail already in Trash and for IMAP accounts without a detected Trash folder. Other selected mail moves to Trash; emptying Trash is needed to reclaim server quota. Search and deletion support Cancel/Resume, and retries preserve the original selection even after a lost response.
+
 ## Changes in 2.18.10
 
 - On mobile screens (up to 900px), tap the application icon at the top left to open the native account combo when two or more email accounts are configured. The current account is selected; choosing another switches accounts and reloads PSE. With one account, the icon stays decorative. Desktop keeps the existing account badge menu.
